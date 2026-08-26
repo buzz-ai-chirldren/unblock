@@ -27,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from strands import Agent, tool  # noqa: E402
 
+from model_provider import build_model  # noqa: E402
+
 from clerk.jobs import Clerk  # noqa: E402
 from clerk.ledger import Ledger  # noqa: E402
 from clerk.policy import Invoice, Policy  # noqa: E402
@@ -39,30 +41,6 @@ ap.add_argument("--db", default="demo/strands_ledger.db")
 ap.add_argument("--provider", choices=["bedrock", "anthropic"], default="bedrock")
 ap.add_argument("--model-id", default=None)
 args = ap.parse_args()
-
-
-def build_model(provider: str, model_id: str | None):
-    if provider == "anthropic":
-        from strands.models.anthropic import AnthropicModel
-
-        return AnthropicModel(model_id=model_id or "claude-opus-5", max_tokens=4096)
-
-    import boto3
-    from strands.models import BedrockModel
-
-    creds = json.load(open(os.environ["BEDROCK_KEY_FILE"]))
-    if "AccessKey" in creds:  # IAM console export wraps the key pair
-        creds = creds["AccessKey"]
-    session = boto3.Session(
-        aws_access_key_id=creds["AccessKeyId"],
-        aws_secret_access_key=creds["SecretAccessKey"],
-        region_name="us-east-1",
-    )
-    return BedrockModel(
-        model_id=model_id or "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        boto_session=session,
-        max_tokens=4096,
-    )
 
 if args.rail == "x402":
     from clerk.x402_rail import X402Rail
