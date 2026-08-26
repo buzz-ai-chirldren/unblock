@@ -34,7 +34,14 @@ class PaymentRail(Protocol):
 
 
 class RailError(RuntimeError):
-    pass
+    """The rail refused BEFORE anything was signed or sent: provably no value
+    moved, so the invoice may safely return to ASK_PENDING and retry later."""
+
+
+class SettlementUncertain(RuntimeError):
+    """The rail failed AFTER a payment authorization may have left the process
+    (signed, sent, or settle response lost). The invoice must stay PAYING and
+    go through reconcile() - never an automatic retry."""
 
 
 def _receipt(rail_name: str, network: str, facilitator: str, invoice: Invoice, tx: str) -> dict:

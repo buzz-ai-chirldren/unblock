@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from .ledger import Ledger
 from .policy import Decision, Invoice, Policy, evaluate
-from .rails import PaymentRail, RailError
+from .rails import PaymentRail, RailError, SettlementUncertain
 
 
 class Clerk:
@@ -148,9 +148,18 @@ class Clerk:
         try:
             receipt = self.rail.pay(invoice)
         except RailError as e:
-            # Rail refused before settlement: safe to retry later from ASK_PENDING.
+            # Rail refused BEFORE anything was signed: safe to retry later from ASK_PENDING.
             self.ledger.mark(invoice, "ASK_PENDING", f"rail error: {e}")
             self.ledger.upsert_job(job_id, "WAITING_APPROVAL", {"work": work, "why": str(e)}, invoice)
+            return "WAITING_APPROVAL"
+        except SettlementUncertain as e:
+            # An authorization may be in flight: the row STAYS PAYING and only
+            # reconcile() (rail's own settlement lookup) can move it. No retry.
+            self.ledger.upsert_job(
+                job_id, "WAITING_APPROVAL",
+                {"work": work, "why": f"settlement uncertain: {e}; reconcile required"},
+                invoice,
+            )
             return "WAITING_APPROVAL"
         self.ledger.record_paid(invoice, receipt)
         return self._finish(job_id, invoice, note=receipt.get("tx", ""))

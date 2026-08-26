@@ -183,3 +183,32 @@ def test_decision_is_terminal_reject_then_approve(tmp_path):
     assert clerk.resume("job-big") == "FAILED"
     assert clerk.ledger.state(BIG) == "DENIED"
     assert rail.settle_count(BIG) == 0
+
+
+# -- 6. settlement-uncertain rail failure: stay PAYING, reconcile only ---------
+
+class UncertainThenLookupRail(FileRail):
+    """First pay() dies with SettlementUncertain AFTER settling (worst case:
+    the settle response was lost); lookup() later finds the settlement."""
+
+    def pay(self, invoice):
+        from clerk.rails import SettlementUncertain
+        super().pay(invoice)  # money moved
+        raise SettlementUncertain("settle response lost")
+
+
+def test_settlement_uncertain_stays_paying_then_reconciles(tmp_path):
+    rail = UncertainThenLookupRail(tmp_path / "rail.db")
+    clerk = Clerk(Ledger(tmp_path / "ledger.db"), POLICY, rail)
+    assert clerk.run_job("job-u", SMALL, "work") == "WAITING_APPROVAL"
+    assert clerk.ledger.state(SMALL) == "PAYING"  # not ASK_PENDING: no retry path
+    assert rail.settle_count(SMALL) == 1
+
+    # A rerun must not pay again.
+    assert clerk.run_job("job-u2", SMALL, "retry") == "WAITING_APPROVAL"
+    assert rail.settle_count(SMALL) == 1
+
+    # resume() on a PAYING row routes through reconcile: adopts the settlement.
+    assert clerk.resume("job-u") == "DONE"
+    assert clerk.ledger.state(SMALL) == "PAID"
+    assert rail.settle_count(SMALL) == 1
