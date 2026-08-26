@@ -709,8 +709,11 @@ async function paid(verdict, beforeBody, price){
 
   const after = await fetch("/api/site").then(j);
   const afterIndex = after.find(f => f.path === "index.md").body;
-  const [bLine, aLine] = [beforeBody, afterIndex].map(
-    body => (body.split("\n").find(l => l.includes("](")) || "").trim());
+  // The line that actually moved, not the first link on the page: index.md
+  // lists two links and only one of them was broken.
+  const bLines = beforeBody.split("\n"), aLines = afterIndex.split("\n");
+  const at = bLines.findIndex((line, n) => line !== aLines[n]);
+  const bLine = (bLines[at] ?? "").trim(), aLine = (aLines[at] ?? "").trim();
   const prs = await fetch("/api/pr").then(j);
 
   step(5, "good", free ? L.s5t_free : L.s5t, free ? L.s5p_free : L.s5p, `
