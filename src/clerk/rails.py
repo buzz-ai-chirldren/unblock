@@ -69,10 +69,11 @@ class MockRail:
 
     name = "mock"
 
-    def __init__(self, fail_times: int = 0):
+    def __init__(self, fail_times: int = 0, paid_body: str | None = None):
         self.settled: list[str] = []
         self.receipts: dict[str, dict] = {}
         self._fail_times = fail_times
+        self._paid_body = paid_body
 
     def pay(self, invoice: Invoice) -> dict:
         if self._fail_times > 0:
@@ -80,6 +81,8 @@ class MockRail:
             raise RailError("mock rail transient failure")
         key = _key(invoice)
         receipt = _receipt(self.name, "mock", "none", invoice, f"mock-{uuid.uuid4().hex[:12]}")
+        if self._paid_body is not None:
+            receipt["resource"] = self._paid_body
         self.settled.append(key)
         self.receipts[key] = receipt
         return receipt
@@ -96,8 +99,9 @@ class FileRail:
 
     name = "filemock"
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, paid_body: str | None = None):
         self.path = str(path)
+        self._paid_body = paid_body
         conn = self._conn()
         conn.close()
 
@@ -116,6 +120,8 @@ class FileRail:
 
     def pay(self, invoice: Invoice) -> dict:
         receipt = _receipt(self.name, "filemock", "none", invoice, f"file-{uuid.uuid4().hex[:12]}")
+        if self._paid_body is not None:
+            receipt["resource"] = self._paid_body
         conn = self._conn()
         conn.execute(
             "INSERT INTO settlements (key, receipt, settled_at) VALUES (?,?,?)",

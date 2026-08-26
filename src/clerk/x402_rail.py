@@ -107,6 +107,9 @@ class X402Rail:
             )
         receipt = _receipt(self.name, settle.network or self.network, FACILITATOR_URL, invoice, settle.transaction or "")
         receipt["payer"] = settle.payer or self.address
+        # The paid response body IS the purchased good: keep it with the
+        # receipt so the job that paid for it can consume it after resume.
+        receipt["resource"] = resp.text[:4096]
         return receipt
 
     def lookup(self, invoice: Invoice) -> dict | None:
