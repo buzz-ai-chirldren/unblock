@@ -173,8 +173,13 @@ def _pipeline(offer: IntelOffer) -> Unblock:
 # --- rate limit ------------------------------------------------------------
 
 _HITS: dict[str, deque[float]] = defaultdict(deque)
-READ_LIMIT = (60, 60.0)      # 60 requests per minute
-WRITE_LIMIT = (10, 60.0)     # 10 mutating requests per minute
+# Behind the tunnel every request arrives from 127.0.0.1, so these are in
+# practice one shared budget rather than per-visitor. That is the stricter
+# reading and it is not spoofable, but it means the ceiling has to clear a
+# human demo comfortably: one story is four writes, and being throttled
+# mid-demo would be worse than the abuse it prevents.
+READ_LIMIT = (120, 60.0)     # 120 reads per minute
+WRITE_LIMIT = (30, 60.0)     # 30 mutating requests per minute
 
 
 def _rate_limit(request: Request, limit: tuple[int, float]) -> None:
@@ -271,6 +276,17 @@ async def gate(request: Request, call_next):
 
     if not _authorised(request):
         return JSONResponse({"detail": "invalid or missing bearer token"}, status_code=401)
+
+    # The mounted approval API does its own bearer check, by design -- it is the
+    # shipped v1 contract and must keep behaving that way for API callers. A
+    # browser authenticated by the session cookie has no header to offer and no
+    # way to read the httpOnly token, so its APPROVE/REJECT was answered 401.
+    # Having already authenticated the request here, present it downstream in
+    # the form that sub-app expects.
+    if not request.headers.get("Authorization"):
+        request.scope["headers"] = [
+            (k, v) for k, v in request.scope["headers"] if k.lower() != b"authorization"
+        ] + [(b"authorization", f"Bearer {TOKEN}".encode())]
 
     try:
         _rate_limit(request, WRITE_LIMIT if request.method != "GET" else READ_LIMIT)

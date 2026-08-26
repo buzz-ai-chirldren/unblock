@@ -367,3 +367,60 @@ def test_the_story_is_told_in_both_languages(client):
 def test_the_page_still_shows_it_is_a_mock(client):
     page = client.get("/", headers=auth()).text
     assert "実際のお金は動きません" in page and "no real money moves" in page
+
+
+# -- the browser session reaches the approval API ---------------------------
+
+def _cookie_client(preview):
+    """A client that has only the session cookie -- no Authorization header,
+    which is exactly what a browser has.
+
+    base_url is https because the cookie is Secure: over http the client would
+    silently decline to send it and the test would prove nothing.
+    """
+    client = TestClient(preview.app, base_url="https://testserver")
+    client.get(f"/?t={TOKEN}", follow_redirects=False)
+    assert client.cookies.get("preview_token"), "no session cookie was set"
+    return client
+
+
+def test_a_cookie_session_can_read_the_approval_api(preview):
+    """The mounted v1 API checks the bearer header itself. A browser cannot
+    supply one -- the token is httpOnly on purpose -- so without help its
+    approve/reject is answered 401 while every curl example works."""
+    client = _cookie_client(preview)
+    assert client.get("/approval/v1/approvals").status_code == 200
+
+
+def test_a_cookie_session_can_decide(preview):
+    client = _cookie_client(preview)
+    client.post("/api/demo/reset")
+    client.post("/api/demo/run", params={"scenario": "ask-over-cap"})
+
+    decision = client.post(f"/approval/v1/approvals/{JOB}/decision",
+                           json={"action": "REJECT"})
+    assert decision.status_code == 200, decision.text
+    assert decision.json()["action_in_effect"] == "REJECTED"
+
+    after = client.post("/api/demo/run", params={"scenario": "ask-over-cap"}).json()
+    assert after["verdicts"][0]["status"] == "done-free"
+    assert client.get("/api/pr").json(), "the story's evidence panel would be empty"
+
+
+def test_an_unauthenticated_request_is_not_given_a_header(preview):
+    # The injection happens only after the gate has already authenticated.
+    client = TestClient(preview.app, base_url="https://testserver")
+    assert client.get("/approval/v1/approvals").status_code == 401
+
+
+def test_a_wrong_bearer_is_not_upgraded(preview):
+    client = TestClient(preview.app, base_url="https://testserver")
+    assert client.get("/approval/v1/approvals",
+                      headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
+def test_the_session_cookie_is_declined_over_plain_http(preview):
+    """Secure is doing its job: the same cookie buys nothing on http."""
+    insecure = TestClient(preview.app)
+    insecure.cookies.set("preview_token", TOKEN, domain="testserver")
+    assert insecure.get("/api/jobs").status_code == 401
