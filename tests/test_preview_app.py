@@ -11,6 +11,7 @@ tests can reach a network.
 from __future__ import annotations
 
 import importlib
+import re
 import sys
 import time
 from pathlib import Path
@@ -614,3 +615,37 @@ def test_the_verdict_line_comes_from_the_policy_not_a_restatement(client):
 def test_the_run_buttons_are_disabled_while_a_story_runs(client):
     page = client.get("/", headers=auth()).text
     assert 'for (const id of ["go","go2"]) document.getElementById(id).disabled = true;' in page
+
+
+# -- the page's own JavaScript has to parse ---------------------------------
+
+def _inline_script(html: str, marker: str) -> str:
+    start = html.index(marker) + len(marker)
+    return html[start:html.index("</script>", start)]
+
+
+def test_the_page_javascript_parses(preview, tmp_path):
+    """A missing brace shipped once: 126 assertions passed because every one of
+    them reads the HTML as a string, and the browser was the only thing that
+    ever tried to run it. The page renders blank labels and no button works.
+    """
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not available")
+
+    script = tmp_path / "ui.js"
+    script.write_text(_inline_script(preview.UI_HTML, "<script>"), encoding="utf-8")
+    result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_javascript_braces_balance(preview):
+    """A cheap structural check that runs even without node."""
+    script = _inline_script(preview.UI_HTML, "<script>")
+    # strip template literals and strings well enough to count block braces
+    stripped = re.sub(r"`(?:[^`\\]|\\.)*`|\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'", "''", script)
+    stripped = re.sub(r"//[^\n]*", "", stripped)
+    assert stripped.count("{") == stripped.count("}")

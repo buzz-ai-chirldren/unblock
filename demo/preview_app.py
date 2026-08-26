@@ -992,7 +992,8 @@ async function decide(action){
 
 async function paid(verdict, beforeBody, price){
   const free = verdict.status === "done-free";
-  if (!free && price)
+  if (!free && price) {
+    await pace(BEAT);
     // The badge belongs on this side too: the story column is what gets
     // filmed and screenshotted, and a receipt id next to a dollar amount
     // reads as a real payment once it is cropped out of the page.
