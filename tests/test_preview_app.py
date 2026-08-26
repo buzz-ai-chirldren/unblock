@@ -446,3 +446,31 @@ def test_the_session_cookie_is_declined_over_plain_http(preview):
     insecure = TestClient(preview.app)
     insecure.cookies.set("preview_token", TOKEN, domain="testserver")
     assert insecure.get("/api/jobs").status_code == 401
+
+
+def test_only_the_approval_subapp_receives_the_injected_bearer(preview):
+    """Least privilege, tested as the risk was described: something else gets
+    mounted later and is silently handed the owner token."""
+    seen: dict[str, str] = {}
+
+    async def recorder(scope, receive, send):
+        headers = {k.decode(): v.decode() for k, v in scope["headers"]}
+        seen["auth"] = headers.get("authorization", "")
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    preview.app.mount("/other", recorder)
+
+    client = _cookie_client(preview)
+    assert client.get("/other/anything").status_code == 204
+    assert seen["auth"] == "", "a newly mounted sub-app was handed the owner token"
+
+    # The one it is meant for still works.
+    assert client.get("/approval/v1/approvals").status_code == 200
+
+
+def test_an_explicit_bearer_is_never_replaced(preview):
+    """Injection fills a gap; it does not override what the caller sent."""
+    client = TestClient(preview.app, base_url="https://testserver")
+    assert client.get("/approval/v1/approvals",
+                      headers={"Authorization": "Bearer wrong"}).status_code == 401

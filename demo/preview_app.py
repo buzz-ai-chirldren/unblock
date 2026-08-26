@@ -18,7 +18,7 @@ that make a temporary public URL safe:
   * a scratch directory OUTSIDE the repository, deleted and rebuilt by
     /api/demo/reset. Runtime state under the repo would mean a demo run
     rewriting its own fixture and a reset deleting tracked files.
-  * a per-IP rate limit, tighter on the mutating routes.
+  * a rate limit shared by the whole preview, tighter on the mutating routes.
 
 Run:
   CLERK_PREVIEW_TOKEN=<token> uv run uvicorn demo.preview_app:app --port 8410
@@ -173,11 +173,11 @@ def _pipeline(offer: IntelOffer) -> Unblock:
 # --- rate limit ------------------------------------------------------------
 
 _HITS: dict[str, deque[float]] = defaultdict(deque)
-# Behind the tunnel every request arrives from 127.0.0.1, so these are in
-# practice one shared budget rather than per-visitor. That is the stricter
-# reading and it is not spoofable, but it means the ceiling has to clear a
-# human demo comfortably: one story is four writes, and being throttled
-# mid-demo would be worse than the abuse it prevents.
+# One budget for the whole preview, not per visitor: behind the tunnel every
+# request arrives from 127.0.0.1, so the key collapses to a single bucket.
+# That is the stricter reading and it cannot be spoofed by a header, but it
+# means the ceiling has to clear a human demo comfortably -- one story is four
+# writes, and being throttled mid-demo would be worse than the abuse it stops.
 READ_LIMIT = (120, 60.0)     # 120 reads per minute
 WRITE_LIMIT = (30, 60.0)     # 30 mutating requests per minute
 
@@ -282,8 +282,9 @@ async def gate(request: Request, call_next):
     # browser authenticated by the session cookie has no header to offer and no
     # way to read the httpOnly token, so its APPROVE/REJECT was answered 401.
     # Having already authenticated the request here, present it downstream in
-    # the form that sub-app expects.
-    if not request.headers.get("Authorization"):
+    # the form that sub-app expects -- and ONLY to that sub-app. Injecting on
+    # every path would hand the owner token to whatever gets mounted next.
+    if path.startswith("/approval/") and not request.headers.get("Authorization"):
         request.scope["headers"] = [
             (k, v) for k, v in request.scope["headers"] if k.lower() != b"authorization"
         ] + [(b"authorization", f"Bearer {TOKEN}".encode())]
