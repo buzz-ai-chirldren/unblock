@@ -70,6 +70,20 @@ CREATE TABLE IF NOT EXISTS jobs (
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS api_events (
+  seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id     TEXT NOT NULL,
+  actor          TEXT NOT NULL,           -- authenticated principal, never caller input
+  action         TEXT NOT NULL,           -- APPROVED | REJECTED | RESUME
+  outcome        TEXT NOT NULL,           -- recorded | idempotent-noop | conflict | resumed
+  job_id         TEXT,
+  merchant       TEXT,
+  invoice_id     TEXT,
+  invoice_digest TEXT,
+  state_before   TEXT,
+  state_after    TEXT,
+  created_at     REAL NOT NULL
+);
 """
 
 
@@ -226,3 +240,30 @@ class Ledger:
     def waiting_jobs(self) -> list[dict]:
         rows = self.conn.execute("SELECT job_id FROM jobs WHERE state='WAITING_APPROVAL'").fetchall()
         return [self.job(r[0]) for r in rows]
+
+    # -- API evidence events -------------------------------------------------
+
+    def record_event(
+        self, request_id: str, actor: str, action: str, outcome: str,
+        job_id: str | None, merchant: str | None, invoice_id: str | None,
+        invoice_digest: str | None, state_before: str | None, state_after: str | None,
+    ) -> None:
+        """Append-only audit row for every authenticated API action. The actor
+        is the authenticated principal; credentials themselves are never stored."""
+        self.conn.execute(
+            "INSERT INTO api_events (request_id, actor, action, outcome, job_id, merchant,"
+            " invoice_id, invoice_digest, state_before, state_after, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (request_id, actor, action, outcome, job_id, merchant,
+             invoice_id, invoice_digest, state_before, state_after, time.time()),
+        )
+        self.conn.commit()
+
+    def events(self, job_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT request_id, actor, action, outcome, invoice_digest, state_before, state_after"
+            " FROM api_events WHERE job_id=? ORDER BY seq",
+            (job_id,),
+        ).fetchall()
+        keys = ["request_id", "actor", "action", "outcome", "invoice_digest", "state_before", "state_after"]
+        return [dict(zip(keys, r)) for r in rows]
