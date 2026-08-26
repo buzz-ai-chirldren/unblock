@@ -788,12 +788,27 @@ const j = (r) => r.json();
 // Every request the page makes goes through here, so the side panel is a
 // record of what actually moved rather than a hand-written illustration of it.
 let STEP = 0;
-async function call(path, opts = {}) {
+let HELD = null;
+
+// `defer` holds the entry back until flushWire(). One response can feed three
+// things on the left (the verdict, the payment, the result), so logging it the
+// instant it arrives put the outcome on the right before the story had said
+// it. The record is unchanged - only the moment it is shown moves, to the beat
+// of the first step that reads from it.
+async function call(path, opts = {}, defer = false) {
   const response = await fetch(path, opts);
   let body = null;
   try { body = await response.clone().json(); } catch { body = "<not json>"; }
-  logWire(opts.method || "GET", path, response.status, body);
+  const entry = [opts.method || "GET", path, response.status, body, STEP];
+  if (defer) HELD = entry; else logWire(...entry);
   return body;
+}
+
+function flushWire() {
+  if (!HELD) return;
+  const held = HELD;
+  HELD = null;
+  logWire(...held);
 }
 
 function noteFor(path) {
@@ -839,12 +854,12 @@ function summarise(path, body) {
   return `<dl class="w-kv">${kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
 }
 
-function logWire(verb, path, status, body) {
+function logWire(verb, path, status, body, atStep = STEP) {
   document.getElementById("wirehint").style.display = "none";
   const note = noteFor(path);
   const entry = el(`<div class="w-entry current">
       <div class="w-top">
-        <span class="w-step">${STEP || "·"}</span>
+        <span class="w-step">${atStep || "·"}</span>
         <span class="w-verb">${esc(verb)}</span>
         <span class="w-path">${esc(path)}</span>
         <span class="w-code ${status < 400 ? "ok" : "no"}">${status}</span>
@@ -959,12 +974,16 @@ async function story(scenario){
   }
 
   STEP = 4;
-  const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"});
+  const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"}, true);
   const verdict = run.verdicts[0];
   const parked = verdict.status === "waiting-approval";
   // The verdict line comes from what the policy actually returned, not from a
   // restatement of it, so the screen cannot claim a decision the code did not make.
-  await reveal(card, `<div class="verdict ${parked ? "ask" : "pay"}">${parked ? L.v_ask : L.v_pay}</div>`, BEAT);
+  await pace(BEAT);
+  card.querySelector("div:last-child").appendChild(
+    el(`<div class="verdict ${parked ? "ask" : "pay"}">${parked ? L.v_ask : L.v_pay}</div>`));
+  flushWire();   // the response reaches the panel as the verdict it produced appears
+  await pace(BEAT);
 
   if (parked) {
     PENDING = {job: verdict.job_id, scenario, before: index.body, price};
@@ -986,7 +1005,7 @@ async function decide(action){
   await call(`/approval/v1/approvals/${job}/decision`, {
     method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({action})});
   await pace(BEAT);
-  const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"});
+  const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"}, true);
   await paid(run.verdicts[0], before, action === "APPROVE" ? price : null);
 }
 
@@ -994,6 +1013,7 @@ async function paid(verdict, beforeBody, price){
   const free = verdict.status === "done-free";
   if (!free && price) {
     await pace(BEAT);
+    flushWire();
     // The badge belongs on this side too: the story column is what gets
     // filmed and screenshotted, and a receipt id next to a dollar amount
     // reads as a real payment once it is cropped out of the page.
@@ -1004,6 +1024,7 @@ async function paid(verdict, beforeBody, price){
   }
 
   await pace(BEAT);
+  flushWire();   // no-op if the payment step already showed it
   STEP = 5;
   const after = await call("/api/site");
   const afterIndex = after.find(f => f.path === "index.md").body;

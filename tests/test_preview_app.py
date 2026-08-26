@@ -609,7 +609,9 @@ def test_the_expensive_path_generates_nothing_past_the_human(client):
 def test_the_verdict_line_comes_from_the_policy_not_a_restatement(client):
     page = client.get("/", headers=auth()).text
     assert 'const parked = verdict.status === "waiting-approval";' in page
-    assert "await reveal(card," in page
+    # the line is appended from that value, not recomputed from the price
+    assert 'parked ? L.v_ask : L.v_pay' in page
+    assert "overCap ? L.v_ask" not in page, "the verdict is being restated locally"
 
 
 def test_the_run_buttons_are_disabled_while_a_story_runs(client):
@@ -649,3 +651,21 @@ def test_the_javascript_braces_balance(preview):
     stripped = re.sub(r"`(?:[^`\\]|\\.)*`|\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'", "''", script)
     stripped = re.sub(r"//[^\n]*", "", stripped)
     assert stripped.count("{") == stripped.count("}")
+
+
+def test_the_panel_does_not_show_an_outcome_before_the_story_tells_it(client):
+    """One response feeds the verdict, the payment and the result. Logging it
+    the instant it arrived put done-paid on the right while the left was still
+    two steps behind - visible in a mid-story frame, which is a video frame."""
+    page = client.get("/", headers=auth()).text
+    assert "function flushWire(" in page
+    # the run call is held back
+    assert '{method:"POST"}, true)' in page
+    story = page[page.index("async function story(scenario)"):page.index("async function decide")]
+    assert story.index("flushWire();") > story.index('await pace(BEAT);\n  card.querySelector')
+
+
+def test_a_held_entry_keeps_the_step_it_was_made_at(client):
+    page = client.get("/", headers=auth()).text
+    assert "function logWire(verb, path, status, body, atStep = STEP)" in page
+    assert '${atStep || "·"}' in page
