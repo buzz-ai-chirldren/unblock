@@ -1,16 +1,21 @@
 """Human approval API over the clerk's durable ASK queue (Gate B boundary).
 
-Endpoints (every route requires `Authorization: Bearer <token>`):
+Public v1 contract (every route requires `Authorization: Bearer <token>`):
 
-  GET  /asks                    WAITING_APPROVAL jobs with their PINNED invoice
-                                terms (redacted memo) and digest; bounded
-                                pagination via limit/offset
-  GET  /approvals/{job_id}      detail: job state, pinned terms, effective
-                                decision, and the audit event trail
-  POST /jobs/{job_id}/decision  record the terminal APPROVED/REJECTED decision
-                                for the job's pinned invoice, then resume it.
-                                Re-sending the SAME decision is the crash
-                                recovery path - there is no resume endpoint.
+  GET  /v1/approvals                    WAITING_APPROVAL jobs with their PINNED
+                                        invoice terms and an allowlisted
+                                        reason_code; bounded limit/offset
+  GET  /v1/approvals/{job_id}           detail: job state, pinned terms,
+                                        effective decision, audit event trail
+  POST /v1/approvals/{job_id}/decision  body {"action": "APPROVE"|"REJECT"}.
+                                        Records the terminal decision for the
+                                        job's pinned invoice, then resumes it.
+                                        Re-sending the SAME decision is the
+                                        crash-recovery path - there is no
+                                        resume endpoint.
+
+External actions APPROVE/REJECT are explicitly mapped to the ledger's terminal
+states APPROVED/REJECTED at this boundary; no other route names or verbs exist.
 
 Threat-model properties (per allowance-clerk-gate-b-threat-model):
 
@@ -29,12 +34,16 @@ Threat-model properties (per allowance-clerk-gate-b-threat-model):
 - The decision commit and its audit event are both persisted BEFORE resume is
   attempted; a resume failure appends its own event (exception class only,
   no secrets) and the client recovers by re-sending the same decision.
-- Responses never carry receipts, provider responses, credentials, or raw
-  memos (a memo may embed URL query tokens; it is redacted at the query
-  string). The digest still binds the FULL terms including the raw memo.
-- Strict schemas (unknown fields rejected, note capped), request bodies over
-  BODY_LIMIT bytes refused, constant-time token compare, tokens never logged,
-  stored, or echoed.
+- Responses carry NO free-form strings: memo and the job's raw `why` are
+  never returned (a memo/why can embed tokens or merchant-controlled text).
+  The park reason is served as an allowlisted reason_code enum instead. The
+  digest still binds the FULL raw terms including the memo. Receipts,
+  provider responses, and credentials never appear in any response.
+- Request bodies are limited by counting the bytes actually received on the
+  ASGI stream (BODY_LIMIT), so chunked transfers and missing/false
+  Content-Length headers cannot bypass the cap.
+- Strict schemas (unknown fields rejected, note capped), constant-time token
+  compare, tokens never logged, stored, or echoed.
 
 SQLite connections are thread-bound and ASGI servers run handlers on worker
 threads, so the app builds a fresh Ledger/Clerk per request via the injected
@@ -50,7 +59,6 @@ import uuid
 from typing import Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .jobs import Clerk
@@ -59,34 +67,79 @@ from .policy import Invoice
 TOKENS_ENV = "CLERK_APPROVAL_TOKENS"  # JSON: {"<actor>": "<token>", ...}
 BODY_LIMIT = 16 * 1024
 
+# External verb -> internal terminal state. The ONLY place the mapping exists.
+ACTIONS = {"APPROVE": "APPROVED", "REJECT": "REJECTED"}
+
+# Allowlisted park reasons. The raw `why` string is evidence (ledger-only);
+# responses may carry one of these enum values and nothing else.
+_REASON_CODES = (
+    ("not in allowlist", "merchant-not-allowlisted"),
+    ("exceeds per-invoice cap", "over-invoice-cap"),
+    ("would spend", "over-weekly-allowance"),
+    ("reconcile PAYING", "reconcile-pending"),
+    ("settlement uncertain", "settlement-uncertain"),
+    ("lost payment race", "payment-race-lost"),
+    ("approval digest mismatch", "approval-digest-mismatch"),
+    ("refused before signing", "rail-refused"),
+    ("rail error", "rail-refused"),
+    ("rejected", "rejected"),
+)
+
+
+def _reason_code(why: str) -> str:
+    for marker, code in _REASON_CODES:
+        if marker in why:
+            return code
+    return "other"
+
 
 class DecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: str = Field(pattern="^(APPROVED|REJECTED)$")
+    action: str = Field(pattern="^(APPROVE|REJECT)$")
     note: str = Field(default="", max_length=500)
 
 
-def _redacted_memo(memo: str) -> str:
-    """Strip anything that can smuggle a secret out through a listing: URL
-    query strings / fragments (paywall URLs often carry access tokens)."""
-    for sep in ("?", "#"):
-        if sep in memo:
-            memo = memo.split(sep, 1)[0] + sep + "[redacted]"
-            break
-    return memo[:200]
+class _BodyLimit:
+    """Pure ASGI middleware: buffers the request body while counting the bytes
+    ACTUALLY received, refusing with 413 once the cap is crossed - independent
+    of Content-Length honesty or chunked transfer encoding."""
 
+    def __init__(self, app, limit: int = BODY_LIMIT):
+        self.app = app
+        self.limit = limit
 
-def _pinned_terms(clerk: Clerk, invoice: Invoice) -> dict:
-    return {
-        "merchant": invoice.merchant,
-        "invoice_id": invoice.invoice_id,
-        "amount": str(invoice.amount),
-        "currency": invoice.currency,
-        "memo": _redacted_memo(invoice.memo),
-        "digest": invoice.digest(),
-        "invoice_state": clerk.ledger.state(invoice),
-    }
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        body = b""
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body += message.get("body", b"")
+            if len(body) > self.limit:
+                payload = b'{"detail":"request body too large"}'
+                await send({
+                    "type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(payload)).encode())],
+                })
+                await send({"type": "http.response.body", "body": payload})
+                return
+            if not message.get("more_body"):
+                break
+
+        replayed = False
+
+        async def replay():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)
 
 
 def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None = None) -> FastAPI:
@@ -116,16 +169,20 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
         return matched
 
     app = FastAPI()
+    app.add_middleware(_BodyLimit, limit=BODY_LIMIT)
 
-    @app.middleware("http")
-    async def refuse_oversized_bodies(request: Request, call_next):
-        length = request.headers.get("content-length")
-        if length is not None and length.isdigit() and int(length) > BODY_LIMIT:
-            return JSONResponse(status_code=413, content={"detail": "request body too large"})
-        return await call_next(request)
+    def pinned_terms(clerk: Clerk, invoice: Invoice) -> dict:
+        return {
+            "merchant": invoice.merchant,
+            "invoice_id": invoice.invoice_id,
+            "amount": str(invoice.amount),
+            "currency": invoice.currency,
+            "digest": invoice.digest(),
+            "invoice_state": clerk.ledger.state(invoice),
+        }
 
-    @app.get("/asks")
-    def list_asks(
+    @app.get("/v1/approvals")
+    def list_approvals(
         actor: str = Depends(authenticated_actor),
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
@@ -141,8 +198,8 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
                 out.append(
                     {
                         "job_id": job["job_id"],
-                        "why": job["payload"].get("why", ""),
-                        **_pinned_terms(clerk, invoice),
+                        "reason_code": _reason_code(job["payload"].get("why", "")),
+                        **pinned_terms(clerk, invoice),
                         "decision": decision[0] if decision else None,
                     }
                 )
@@ -150,7 +207,7 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
         finally:
             clerk.ledger.close()
 
-    @app.get("/approvals/{job_id}")
+    @app.get("/v1/approvals/{job_id}")
     def approval_detail(job_id: str, actor: str = Depends(authenticated_actor)) -> dict:
         clerk = clerk_factory()
         try:
@@ -162,17 +219,18 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
             return {
                 "job_id": job_id,
                 "job_state": job["state"],
-                "why": job["payload"].get("why", ""),
-                **(_pinned_terms(clerk, invoice) if invoice else {}),
+                "reason_code": _reason_code(job["payload"].get("why", "")),
+                **(pinned_terms(clerk, invoice) if invoice else {}),
                 "decision": decision[0] if decision else None,
                 "events": clerk.ledger.events(job_id),
             }
         finally:
             clerk.ledger.close()
 
-    @app.post("/jobs/{job_id}/decision")
+    @app.post("/v1/approvals/{job_id}/decision")
     def decide(job_id: str, req: DecisionRequest, actor: str = Depends(authenticated_actor)) -> dict:
         request_id = uuid.uuid4().hex
+        requested = ACTIONS[req.action]  # external verb -> internal terminal state
         clerk = clerk_factory()
         try:
             job = clerk.ledger.job(job_id)
@@ -194,7 +252,7 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
             # already exists, fall through: the atomic insert below loses and
             # we branch on the stored action - the resend/conflict paths.)
             if clerk.ledger.decision(invoice) is None and job["state"] != "WAITING_APPROVAL":
-                event(req.action, "refused-state", state_before)
+                event(requested, "refused-state", state_before)
                 raise HTTPException(
                     status_code=409,
                     detail=f"job is {job['state']}, not WAITING_APPROVAL; decisions cannot be added after the fact",
@@ -202,9 +260,9 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
 
             # The ledger INSERT is the only arbiter; everything below branches
             # on the STORED action, never on what this request asked for.
-            created, effective = clerk.decide(invoice, req.action, actor, req.note)
-            if effective != req.action:
-                event(req.action, f"conflict:stored={effective}", state_before)
+            created, effective = clerk.decide(invoice, requested, actor, req.note)
+            if effective != requested:
+                event(requested, f"conflict:stored={effective}", state_before)
                 raise HTTPException(
                     status_code=409,
                     detail=f"terminal decision {effective} already recorded; issue a new invoice_id to revise",
