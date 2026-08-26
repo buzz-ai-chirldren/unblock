@@ -542,10 +542,14 @@ UI_HTML = r"""<!doctype html>
   .evidence a { color:var(--accent); }
   #wiretoggle { display:none; }
   @media (max-width:1180px){
-    #wiretoggle { display:block; position:fixed; right:14px; bottom:14px; z-index:20;
-                  box-shadow:0 4px 14px rgba(0,0,0,.5); }
-    .wire { position:fixed; left:0; right:0; bottom:0; z-index:19; max-height:74vh;
-            border-radius:12px 12px 0 0; transform:translateY(101%);
+    /* A full-width bar rather than a floating button: a FAB sits on top of
+       whatever happens to be under it, and here that was the reject button. */
+    #wiretoggle { display:block; position:fixed; left:0; right:0; bottom:0; z-index:21;
+                  border-radius:0; border-left:none; border-right:none; border-bottom:none;
+                  padding:11px; font-weight:600; }
+    main { padding-bottom:64px; }
+    .wire { position:fixed; left:0; right:0; bottom:44px; z-index:20; max-height:72vh;
+            border-radius:12px 12px 0 0; transform:translateY(calc(101% + 44px));
             transition:transform .22s ease; }
     .wire.open { transform:none; }
   }
@@ -674,8 +678,7 @@ UI_HTML = r"""<!doctype html>
      <p class="w-note" style="color:var(--dim)" data-i="e_note"></p>
    </div>
  </aside>
- <button id="wiretoggle" onclick="document.querySelector('.wire').classList.toggle('open')"
-         data-i="w_toggle"></button>
+ <button id="wiretoggle" onclick="toggleWire()" data-i="w_toggle"></button>
 </main>
 <script>
 const JA = {
@@ -707,7 +710,7 @@ const JA = {
   w_empty:"ボタンを押すと、各ステップで送受信された中身がここに順番に出ます。",
   w_402:"これは請求書であって、支払いではありません。x402では、この条件を見たクライアントが X-PAYMENT 署名を付けて再送し、そこで facilitator が on-chain の settle を行います。このpreviewはmock railなのでそこまで進みません。payTo が 0x…dEaD（burn address）、URLが testserver なのは、プロセス内で条件だけを取り出しているからで、ここからは1円も動かせません。",
   w_decide:"人間の決定はここで記録されます。state:FAILED は「支払いを許可しなかった」という意味で、仕事の失敗ではありません。次のrunが無料の代替で完了させます。",
-  w_toggle:"データを見る",
+  w_toggle:"データを見る", w_close:"閉じる",
   k_amount:"金額", k_network:"ネットワーク", k_asset:"通貨", k_payto:"支払先",
   k_merchant:"相手", k_settle:"決済", k_rail:"経路", k_verdict:"判定",
   k_job:"ジョブ", k_action:"決定", k_state:"状態", k_files:"ファイル", k_count:"件数",
@@ -748,7 +751,7 @@ const EN = {
   w_empty:"Press a button and every request and response appears here, in order.",
   w_402:"This is an invoice, not a payment. In x402 the client retries with a signed X-PAYMENT header and the facilitator settles on-chain at that point. This preview runs on the mock rail and never gets there. payTo is 0x…dEaD (the burn address) and the URL says testserver because the terms are pulled in-process - nothing here can move a cent.",
   w_decide:"The human decision is recorded here. state:FAILED means the purchase was not authorised, not that the job failed - the next run finishes it from a free source.",
-  w_toggle:"Show data",
+  w_toggle:"Show data", w_close:"Close",
   k_amount:"Amount", k_network:"Network", k_asset:"Asset", k_payto:"Pay to",
   k_merchant:"Merchant", k_settle:"Settlement", k_rail:"Rail", k_verdict:"Verdict",
   k_job:"Job", k_action:"Decision", k_state:"State", k_files:"Files", k_count:"Count",
@@ -842,6 +845,11 @@ function logWire(verb, path, status, body) {
 }
 const el = (h) => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstChild; };
 const esc = (t) => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function toggleWire(){
+  const open = document.querySelector(".wire").classList.toggle("open");
+  document.getElementById("wiretoggle").textContent = open ? L.w_close : L.w_toggle;
+}
 
 function paint(){
   document.documentElement.lang = L === JA ? "ja" : "en";
