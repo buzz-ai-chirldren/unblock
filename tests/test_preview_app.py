@@ -356,6 +356,28 @@ def test_the_entry_point_carries_no_internal_jargon(client):
         assert jargon not in page, f"{jargon!r} is visible on the landing page"
 
 
+def test_the_page_opens_with_the_risk_not_the_feature(client):
+    """Order fixed with Codex: fear, then the safeguard, then proof, then the
+    future. A visitor who does not know x402 has to recognise the problem in
+    the first line."""
+    page = client.get("/", headers=auth()).text
+    assert "AIにお金を使わせたとき、誰が止めるんですか？" in page
+    assert "You gave an AI a wallet. Who stops the spending?" in page
+    assert "ローカルな防火壁" in page and "local spending firewall" in page
+
+
+def test_the_future_section_does_not_overclaim(client):
+    """The rails are swappable and other irreversible actions are a plausible
+    extension, but this code has only ever proved the payment path. The page
+    has to say so, or the demo quietly promises something it cannot show."""
+    page = client.get("/", headers=auth()).text
+    assert "x402" in page and "Tempo MPP" in page
+    assert "いま実証できているのは「支払い」の経路です" in page
+    assert "what this code proves is the payment path" in page
+    for overclaim in ("deploy", "データベース", "メール送信"):
+        assert overclaim not in page, f"the page claims {overclaim!r} is covered"
+
+
 def test_the_story_is_told_in_both_languages(client):
     page = client.get("/", headers=auth()).text
     assert "リンク切れを直してみる" in page      # the plain-language primary action

@@ -543,6 +543,17 @@ UI_HTML = r"""<!doctype html>
   .cell { background:#0d1117; border:1px solid var(--line); border-radius:6px; padding:11px 13px; }
   .cell .k { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.07em; }
   .cell .v { font-size:17px; font-weight:600; margin-top:3px; }
+  .defn { margin:-16px 0 24px; font-size:15px; color:var(--fg);
+          border-left:3px solid var(--accent); padding-left:12px; }
+  .future { margin-top:36px; background:var(--panel); border:1px solid var(--line);
+            border-radius:8px; padding:18px 20px; }
+  .future h2 { font-size:15px; margin:0 0 14px; }
+  .future .cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:18px; }
+  .future .k { font-size:11px; color:var(--dim); text-transform:uppercase;
+               letter-spacing:.08em; margin-bottom:5px; }
+  .future p { margin:0; font-size:14px; color:var(--dim); }
+  .future .bound { margin-top:16px; padding-top:12px; border-top:1px solid var(--line);
+                   font-size:13px; color:var(--dim); }
   details { margin-top:34px; border-top:1px solid var(--line); padding-top:14px; }
   summary { cursor:pointer; color:var(--dim); font-size:13px; }
   pre { background:#0d1117; border:1px solid var(--line); border-radius:6px;
@@ -564,12 +575,22 @@ UI_HTML = r"""<!doctype html>
 <main>
   <h1 data-i="title"></h1>
   <p class="lede" data-i="lede"></p>
+  <p class="defn" data-i="defn"></p>
   <div class="row">
     <button class="primary" id="go" onclick="story('allow')" data-i="cta"></button>
     <button id="go2" onclick="story('ask-over-cap')" data-i="cta2"></button>
     <button id="again" onclick="location.reload()" data-i="again" style="display:none"></button>
   </div>
   <div class="steps" id="steps"></div>
+
+  <section class="future">
+    <h2 data-i="f_head"></h2>
+    <div class="cols">
+      <div><div class="k" data-i="f_now_k"></div><p data-i="f_now"></p></div>
+      <div><div class="k" data-i="f_next_k"></div><p data-i="f_next"></p></div>
+    </div>
+    <p class="bound" data-i="f_bound"></p>
+  </section>
 
   <details>
     <summary data-i="dev"></summary>
@@ -588,8 +609,13 @@ UI_HTML = r"""<!doctype html>
 <script>
 const JA = {
   badge:"デモ用・実際のお金は動きません", lang:"English",
-  title:"AIが「有料の壁」で止まらないようにする仕組みです。",
-  lede:"サイトのリンク切れを直すのに、答えが有料ページの向こうにありました。ふつうのAIはここで止まって人間を待ちます。UNBLOCKは、決められたおこづかいの範囲なら自分で買って、仕事を最後まで終わらせます。高すぎるときだけ人間に聞きます。",
+  title:"AIにお金を使わせたとき、誰が止めるんですか？",
+  lede:"AIにwalletや課金APIを渡すと、仕事は速くなります。でも、止める人がいません。UNBLOCKは支払いの権限をAI本人から外し、金額・週の予算・相手・承認された内容を、AIが書き換えられないコードで確認します。範囲内なら自分で払って仕事を終わらせ、外れたときだけ人間に聞きます。",
+  defn:"UNBLOCKは、AIのお金の使い方を守るローカルな防火壁です。",
+  f_head:"どこで効くのか",
+  f_now_k:"今日", f_now:"AIにagent walletやAPIの課金キー、クラウドの予算を渡した時点で、もう必要です。速く働かせるほど、止める仕組みが要ります。",
+  f_next_k:"これから", f_next:"x402やTempo MPPのように、機械が機械から直接買う経路が増えるほど効いてきます。支払える agent には、必ず制御層が要ります。",
+  f_bound:"正直に言うと、いま実証できているのは「支払い」の経路です。同じ考え方は他の取り消せない操作にも広げられますが、そこはまだ実装も検証もしていません。",
   cta:"リンク切れを直してみる", cta2:"高い情報だったら？", again:"もう一度はじめから",
   s1t:"AIが壊れたリンクを見つけた", s1p:"サイトの中を機械的に調べただけ。ここまではお金の話は出てきません。",
   s2t:"直し方が有料ページの向こうにある", s2p:"正しいリンク先を知っているサイトが「先にお金を払って」と答えました。ふつうのAIはここで止まります。",
@@ -610,8 +636,13 @@ const JA = {
 };
 const EN = {
   badge:"DEMO — no real money moves", lang:"日本語",
-  title:"An AI that does not stop at a paywall.",
-  lede:"Fixing a broken link needed an answer that sits behind a paid page. A normal agent stops there and waits for a human. UNBLOCK buys it within a fixed allowance and finishes the job — and asks a person only when the price is out of bounds.",
+  title:"You gave an AI a wallet. Who stops the spending?",
+  lede:"Hand an agent a wallet or a billing key and it works faster — with nobody to stop it. UNBLOCK takes the spending authority away from the model and checks the amount, the weekly budget, the counterparty and the approved terms in code the model cannot rewrite. Inside the rules it pays and finishes the job; outside them it asks a person.",
+  defn:"UNBLOCK is a local spending firewall for AI agents.",
+  f_head:"Where this matters",
+  f_now_k:"Today", f_now:"The moment an agent holds a wallet, a billing key or a cloud budget. The faster it works, the more it needs something that can stop it.",
+  f_next_k:"Next", f_next:"As machine-to-machine rails like x402 and Tempo MPP spread. Every agent that can spend will need a control layer.",
+  f_bound:"To be exact: what this code proves is the payment path. The same shape extends to other irreversible actions, but that is not built or verified here.",
   cta:"Fix the broken link", cta2:"What if it were expensive?", again:"Start over",
   s1t:"The agent found a broken link", s1p:"A plain mechanical scan of the site. No money involved yet.",
   s2t:"The fix is behind a paywall", s2p:"The site that knows the correct target answered: pay first. A normal agent stops here.",
