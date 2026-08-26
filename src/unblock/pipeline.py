@@ -8,7 +8,9 @@ Stage map (Gate C):
   detect()        deterministic link check over the site's markdown files
   Unblock.run()   one incident end-to-end:
                     clerk.run_job(job_id, invoice)   -- pay for link intel
-                      DONE             -> mapping from the PAID response body
+                      DONE             -> strict 5-field intel record from the
+                                          PAID response body, validated against
+                                          THIS incident's broken link
                       WAITING_APPROVAL -> parked; a human decides on the v1
                                           approval API; re-run after
                       FAILED (rejected)-> free fallback source, no payment
@@ -36,11 +38,22 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable
+from urllib.parse import quote
 
 from clerk.jobs import Clerk
 from clerk.policy import Invoice
 
 _LINK = re.compile(r"\[[^\]]*\]\(([^)#?\s]+)(?:[#?][^)]*)?\)")
+
+# The paid link-intelligence record: exactly these fields, exactly these types.
+# bool is excluded from "int" explicitly (isinstance(True, int) is True).
+INTEL_FIELDS: dict[str, tuple[type, ...]] = {
+    "broken_url": (str,),
+    "status": (int,),
+    "final_url": (str, type(None)),
+    "suggested_replacement": (str,),
+    "observed_at": (str,),
+}
 
 
 @dataclass(frozen=True)
@@ -118,10 +131,7 @@ class Unblock:
             return {"status": "refused-file", "job_id": incident.job_id,
                     "why": "file is not in the repair allowlist"}
 
-        invoice = Invoice(
-            invoice_id=incident.invoice_id, merchant=self.offer.merchant,
-            amount=self.offer.amount, currency=self.offer.currency, memo=self.offer.url,
-        )
+        invoice = self._invoice(incident)
         clerk = self.clerk_factory()
         try:
             state = clerk.run_job(incident.job_id, invoice, work=f"buy link intel for {incident.link}")
@@ -138,11 +148,11 @@ class Unblock:
                 source = {"kind": "free-fallback", "receipt": None}
             else:  # DONE - paid now, or already paid on an earlier (crashed) run
                 receipt = clerk.ledger.receipt(invoice) or {}
-                new_target = self._mapping_from(receipt).get(incident.link) \
-                    or self.free_sources.get(incident.link)
+                new_target = self._replacement_from(receipt, incident.link)
                 if new_target is None:
                     return {"status": "failed", "job_id": incident.job_id,
-                            "why": "paid response had no mapping for this link"}
+                            "why": "paid response failed strict intel validation "
+                                   "(schema, types, or broken_url mismatch)"}
                 source = {"kind": "paid", "receipt": {
                     k: receipt.get(k) for k in ("rail", "network", "facilitator", "tx", "amount", "currency")
                 }}
@@ -156,19 +166,41 @@ class Unblock:
         remaining = detect(self.site_dir)
         if any(i.incident_id == incident.incident_id for i in remaining):
             return {"status": "failed", "job_id": incident.job_id, "why": "fix did not verify"}
-        self._write_pr(pr_path, incident, new_target, source, diff, len(remaining))
+        self._write_pr(pr_path, incident, invoice, new_target, source, diff, len(remaining))
         status = "done-paid" if source["kind"] == "paid" else "done-free"
         return {"status": status, "job_id": incident.job_id, "pr": str(pr_path),
                 "receipt": source["receipt"]}
 
     # -- internals --------------------------------------------------------------
 
+    def _invoice(self, incident: Incident) -> Invoice:
+        """The purchase terms for ONE incident: the query URL (with the exact
+        broken link being asked about) rides in memo, so it is part of the
+        invoice digest - approving intel for one incident can never authorize
+        paying for another's."""
+        query_url = f"{self.offer.url}?broken_url={quote(incident.link, safe='')}"
+        return Invoice(
+            invoice_id=incident.invoice_id, merchant=self.offer.merchant,
+            amount=self.offer.amount, currency=self.offer.currency, memo=query_url,
+        )
+
     @staticmethod
-    def _mapping_from(receipt: dict) -> dict:
+    def _replacement_from(receipt: dict, broken_url: str) -> str | None:
+        """Strict parse of the paid intel record. Rejects: non-JSON, non-object,
+        unknown or missing fields, wrong types, and a record about a different
+        broken_url (no cross-incident response replay)."""
         try:
-            return json.loads(receipt.get("resource") or "{}").get("redirects", {})
-        except (json.JSONDecodeError, AttributeError):
-            return {}
+            data = json.loads(receipt.get("resource") or "")
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(data, dict) or set(data) != set(INTEL_FIELDS):
+            return None
+        for field, types in INTEL_FIELDS.items():
+            if isinstance(data[field], bool) or not isinstance(data[field], types):
+                return None
+        if data["broken_url"] != broken_url:
+            return None
+        return data["suggested_replacement"]
 
     def _apply_fix(self, incident: Incident, new_target: str) -> str | None:
         """Replace the broken link with new_target in the allowlisted file only.
@@ -190,8 +222,8 @@ class Unblock:
             fromfile=f"a/{incident.file}", tofile=f"b/{incident.file}",
         ))
 
-    def _write_pr(self, pr_path: Path, incident: Incident, new_target: str,
-                  source: dict, diff: str, remaining: int) -> None:
+    def _write_pr(self, pr_path: Path, incident: Incident, invoice: Invoice,
+                  new_target: str, source: dict, diff: str, remaining: int) -> None:
         receipt = source["receipt"]
         paid_lines = (
             f"- rail: `{receipt['rail']}` / network: `{receipt['network']}`\n"
@@ -200,12 +232,19 @@ class Unblock:
             if receipt else
             "- free fallback source; **no payment was made** (purchase rejected or denied)\n"
         )
+        terms_lines = (
+            f"- merchant: `{invoice.merchant}` / invoice: `{invoice.invoice_id}`\n"
+            f"- query: `{invoice.memo}`\n"
+            f"- terms: {invoice.amount} {invoice.currency}\n"
+            f"- invoice digest: `{invoice.digest()}`\n"
+        )
         body = (
             f"# UNBLOCK: repair broken link `{incident.link}`\n\n"
             f"## Incident\n"
             f"- incident: `{incident.incident_id}` / job: `{incident.job_id}`\n"
             f"- file: `{incident.file}`\n"
             f"- broken link: `{incident.link}` -> fixed to: `{new_target}`\n\n"
+            f"## Purchase terms (digest-pinned)\n{terms_lines}\n"
             f"## Information source\n{paid_lines}\n"
             f"## Verification\n"
             f"- link check after fix: this incident resolved; {remaining} broken link(s) remaining site-wide\n\n"

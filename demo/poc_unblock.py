@@ -34,7 +34,8 @@ from unblock import Incident, IntelOffer, Unblock, detect  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent
 RUN_DIR = REPO / "demo" / "unblock_run"
 
-MAPPING_BODY = json.dumps({"redirects": {"guides/install.md": "docs/setup.md"}})
+INTEL_BODY = (REPO / "fixtures" / "intel_db.json").read_text()
+INTEL_RECORD = json.dumps(json.loads(INTEL_BODY)["guides/install.md"])
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--rail", choices=["mock", "x402"], default="mock")
@@ -55,12 +56,12 @@ if args.rail == "x402":
     wallet = json.load(open(os.environ["CLERK_WALLET_FILE"]))
     rail = X402Rail(private_key=wallet["private_key"])
     offer = IntelOffer("local-x402-merchant", Decimal("0.05"),
-                       url="http://127.0.0.1:8402/premium-data")
+                       url="http://127.0.0.1:8402/intel")
 else:
     # FileRail so the settlement count survives crashes/re-runs and can be
-    # audited from outside the process; the paid body is the link-intel JSON.
-    rail = FileRail(RUN_DIR / "rail.db", paid_body=MAPPING_BODY)
-    offer = IntelOffer("intel.example", Decimal("0.05"), url="http://intel.example/db")
+    # audited from outside the process; the paid body is the link-intel record.
+    rail = FileRail(RUN_DIR / "rail.db", paid_body=INTEL_RECORD)
+    offer = IntelOffer("intel.example", Decimal("0.05"), url="http://intel.example/intel")
 
 POLICY = Policy(
     currency="USDC",

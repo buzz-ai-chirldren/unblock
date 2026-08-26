@@ -16,6 +16,7 @@ import shutil
 import sys
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,7 +33,16 @@ from unblock import Incident, IntelOffer, Unblock, detect  # noqa: E402
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "site"
 BROKEN_LINK = "guides/install.md"
 GOOD_TARGET = "docs/setup.md"
-MAPPING_BODY = json.dumps({"redirects": {BROKEN_LINK: GOOD_TARGET}})
+
+
+def intel_body(broken=BROKEN_LINK, target=GOOD_TARGET, **overrides):
+    record = {"broken_url": broken, "status": 404, "final_url": None,
+              "suggested_replacement": target, "observed_at": "2026-08-26T00:00:00Z"}
+    record.update(overrides)
+    return json.dumps(record)
+
+
+INTEL_BODY = intel_body()
 
 POLICY = Policy(
     currency="USDC",
@@ -78,7 +88,7 @@ def test_detect_finds_seeded_broken_link(tmp_path):
 
 def test_e2e_paid_fix_verifies_and_prs(tmp_path):
     site = make_site(tmp_path)
-    rail = MockRail(paid_body=MAPPING_BODY)
+    rail = MockRail(paid_body=INTEL_BODY)
     pipeline, _ = make_pipeline(tmp_path, site, rail)
     (incident,) = detect(site)
 
@@ -95,13 +105,15 @@ def test_e2e_paid_fix_verifies_and_prs(tmp_path):
     assert "0 broken link(s) remaining" in pr                            # verification ref
     assert f"-- [Install guide]({BROKEN_LINK})" in pr.replace("\r", "")  # diff included
     assert "0.05 USDC" in pr
+    invoice = pipeline._invoice(incident)
+    assert invoice.digest() in pr and invoice.memo in pr  # purchase terms pinned
 
 
 # -- retries and a real process crash: 0 extra settlements, 0 duplicate PRs ------
 
 def test_rerun_is_idempotent(tmp_path):
     site = make_site(tmp_path)
-    rail = MockRail(paid_body=MAPPING_BODY)
+    rail = MockRail(paid_body=INTEL_BODY)
     pipeline, _ = make_pipeline(tmp_path, site, rail)
     (incident,) = detect(site)
 
@@ -122,7 +134,7 @@ def _crash_worker(site, tmp_dir, rail_db):
     db = tmp_path / "ledger.db"
 
     def factory():
-        return Clerk(Ledger(db), POLICY, FileRail(rail_db, paid_body=MAPPING_BODY))
+        return Clerk(Ledger(db), POLICY, FileRail(rail_db, paid_body=INTEL_BODY))
 
     pipeline = _CrashAfterPay(Path(site), "index.md", factory, CHEAP, tmp_path / "prs")
     pipeline.run(detect(Path(site))[0])
@@ -163,7 +175,7 @@ def test_process_crash_between_pay_and_fix_recovers(tmp_path):
 def test_non_allowlisted_file_is_refused_before_payment(tmp_path):
     site = make_site(tmp_path)
     (site / "docs" / "setup.md").write_text("# Setup\n\nSee [old page](missing/page.md).\n")
-    rail = MockRail(paid_body=MAPPING_BODY)
+    rail = MockRail(paid_body=INTEL_BODY)
     pipeline, _ = make_pipeline(tmp_path, site, rail)
 
     other = next(i for i in detect(site) if i.file != "index.md")
@@ -181,18 +193,55 @@ def test_hostile_replacement_targets_are_refused(tmp_path):
     before = (site / "index.md").read_text()
 
     for bad_target in ("../outside.md", "does/not/exist.md"):
-        rail = MockRail(paid_body=json.dumps({"redirects": {BROKEN_LINK: bad_target}}))
+        rail = MockRail(paid_body=intel_body(target=bad_target))
         pipeline, _ = make_pipeline(tmp_path / bad_target.replace("/", "_"), site, rail)
         result = pipeline.run(incident)
         assert result["status"] == "failed"
         assert (site / "index.md").read_text() == before  # never edited
 
 
+# -- the paid intel record is strictly validated ---------------------------------
+
+@pytest.mark.parametrize("body", [
+    "not json",
+    json.dumps(["broken_url"]),                      # not an object
+    intel_body(extra_field="x"),                     # unknown field
+    json.dumps({"broken_url": BROKEN_LINK}),         # missing fields
+    intel_body(status="404"),                        # wrong type
+    intel_body(status=True),                         # bool is not an int here
+    intel_body(final_url=7),                         # wrong type on optional field
+    intel_body(broken="docs/other.md"),              # response replay for another incident
+])
+def test_malformed_or_replayed_intel_never_edits(tmp_path, body):
+    site = make_site(tmp_path)
+    rail = MockRail(paid_body=body)
+    pipeline, _ = make_pipeline(tmp_path, site, rail)
+    (incident,) = detect(site)
+
+    result = pipeline.run(incident)
+    assert result["status"] == "failed"
+    assert "strict intel validation" in result["why"]
+    assert f"({BROKEN_LINK})" in (site / "index.md").read_text()  # untouched
+    assert not list((tmp_path / "prs").iterdir())                 # no PR
+
+
+def test_invoice_digest_binds_the_incident_query(tmp_path):
+    site = make_site(tmp_path)
+    (site / "docs" / "setup.md").write_text("# Setup\n\nSee [old page](missing/page.md).\n")
+    pipeline, _ = make_pipeline(tmp_path, site, MockRail(paid_body=INTEL_BODY))
+
+    first, second = detect(site)
+    inv_a, inv_b = pipeline._invoice(first), pipeline._invoice(second)
+    assert quote(first.link, safe="") in inv_a.memo   # the question asked is in the terms
+    assert inv_a.memo != inv_b.memo                   # different incident, different query...
+    assert inv_a.digest() != inv_b.digest()           # ...and a different pinned digest
+
+
 # -- park -> human decision on the v1 approval API -> fallback or paid -----------
 
 def test_over_cap_parks_then_reject_completes_free(tmp_path):
     site = make_site(tmp_path)
-    rail = MockRail(paid_body=MAPPING_BODY)
+    rail = MockRail(paid_body=INTEL_BODY)
     pipeline, factory = make_pipeline(tmp_path, site, rail, offer=PRICEY,
                                       free_sources={BROKEN_LINK: GOOD_TARGET})
     (incident,) = detect(site)
@@ -220,7 +269,7 @@ def test_over_cap_parks_then_reject_completes_free(tmp_path):
 
 def test_over_cap_parks_then_approve_pays_and_completes(tmp_path):
     site = make_site(tmp_path)
-    rail = MockRail(paid_body=MAPPING_BODY)
+    rail = MockRail(paid_body=INTEL_BODY)
     pipeline, factory = make_pipeline(tmp_path, site, rail, offer=PRICEY)
     (incident,) = detect(site)
 

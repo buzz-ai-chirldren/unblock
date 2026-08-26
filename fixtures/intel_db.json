@@ -1,0 +1,9 @@
+{
+  "guides/install.md": {
+    "broken_url": "guides/install.md",
+    "status": 404,
+    "final_url": null,
+    "suggested_replacement": "docs/setup.md",
+    "observed_at": "2026-08-26T00:00:00Z"
+  }
+}
