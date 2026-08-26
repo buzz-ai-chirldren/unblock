@@ -8,8 +8,12 @@ that make a temporary public URL safe:
 
   * mock rail only. Nothing here can reach Bedrock, a wallet, x402, or GitHub.
     `_assert_offline()` fails startup if the process was handed any of those.
-  * bearer token on every route except /health. Browsers may present it once as
-    ?t=<token> and get a cookie; terminals send Authorization: Bearer.
+  * bearer token on every route except /health and /robots.txt. Terminals send
+    Authorization: Bearer, which never reaches an access log. Browsers post the
+    token to /login. A ?t=<token> bootstrap link still works, but exactly ONCE:
+    a token that has been in a URL is a token that is in somebody's log, so the
+    URL path is closed after its first redemption and later attempts land on
+    /login instead.
   * a hard expiry. After it, every route answers 410 and the server stops.
   * its own scratch directory and ledger, deleted and rebuilt by /api/demo/reset.
   * a per-IP rate limit, tighter on the mutating routes.
@@ -77,6 +81,11 @@ TOKEN = os.environ.get("CLERK_PREVIEW_TOKEN") or ""
 if len(TOKEN) < 24:
     raise RuntimeError("CLERK_PREVIEW_TOKEN must be set and at least 24 chars")
 
+# Flipped by the first successful ?t= redemption. In-process only: a restart
+# re-opens the bootstrap link, which is the behaviour we want when a preview is
+# re-issued and the owner needs to get back in.
+_BOOTSTRAP_SPENT = False
+
 TTL_HOURS = float(os.environ.get("PREVIEW_TTL_HOURS", "12"))
 STARTED_AT = time.time()
 EXPIRES_AT = STARTED_AT + TTL_HOURS * 3600
@@ -120,10 +129,15 @@ def _site() -> Path:
 
 
 def _rail() -> FileRail:
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
     return FileRail(RUN_DIR / "rail.db", paid_body=INTEL_RECORD)
 
 
 def _clerk_factory():
+    # Reading the ledger before anything has been run is a normal first move
+    # for a human poking at the preview; sqlite will not create a database in
+    # a directory that does not exist yet.
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
     return Clerk(Ledger(RUN_DIR / "ledger.db"), POLICY, _rail())
 
 
@@ -196,21 +210,47 @@ def _authorised(request: Request) -> bool:
     return hmac.compare_digest(cookie.encode(), TOKEN.encode())
 
 
+PUBLIC_PATHS = frozenset({"/health", "/robots.txt", "/login"})
+
+
+def _session_cookie(response):
+    """Set the browser session cookie. `secure` because the only way in is the
+    HTTPS tunnel; a preview cookie that would travel in clear is a preview
+    cookie waiting to be read."""
+    response.set_cookie(
+        "preview_token", TOKEN, httponly=True, secure=True,
+        samesite="lax", max_age=int(TTL_HOURS * 3600),
+    )
+    return response
+
+
 @app.middleware("http")
 async def gate(request: Request, call_next):
+    global _BOOTSTRAP_SPENT
     path = request.url.path
+
+    if path == "/robots.txt":
+        # Deliberately before the auth check: a crawler that gets 401 never
+        # reads the disallow, which is the opposite of what it is for.
+        return PlainTextResponse("User-agent: *\nDisallow: /\n")
     if path == "/health":
         return await call_next(request)
 
     if time.time() > EXPIRES_AT:
         return JSONResponse({"detail": "preview expired"}, status_code=410)
 
-    # Browser entry point: ?t=<token> once, then a cookie.
+    # One-shot browser bootstrap. Valid once; after that the link is dead even
+    # with the right token, and the browser is sent to the form instead.
     token_param = request.query_params.get("t")
-    if path == "/" and token_param and hmac.compare_digest(token_param.encode(), TOKEN.encode()):
-        response = RedirectResponse("/", status_code=303)
-        response.set_cookie("preview_token", TOKEN, httponly=True, samesite="lax", max_age=int(TTL_HOURS * 3600))
-        return response
+    if path == "/" and token_param:
+        good = hmac.compare_digest(token_param.encode(), TOKEN.encode())
+        if good and not _BOOTSTRAP_SPENT:
+            _BOOTSTRAP_SPENT = True
+            return _session_cookie(RedirectResponse("/", status_code=303))
+        return RedirectResponse("/login?reason=bootstrap-spent", status_code=303)
+
+    if path in PUBLIC_PATHS:
+        return await call_next(request)
 
     if not _authorised(request):
         return JSONResponse({"detail": "invalid or missing bearer token"}, status_code=401)
@@ -357,9 +397,51 @@ def pilot():
     return FileResponse(PILOT, media_type="video/mp4")
 
 
+@app.get("/login", response_class=HTMLResponse)
+def login_form(reason: str = "") -> str:
+    note = {
+        "bootstrap-spent": "That one-time link has already been used. Paste the token instead.",
+    }.get(reason, "")
+    return LOGIN_HTML.replace("{{note}}", note)
+
+
+@app.post("/login")
+async def login(request: Request):
+    """Token in the request body, never in the URL, so it stays out of logs."""
+    form = await request.form()
+    supplied = str(form.get("token", ""))
+    if not hmac.compare_digest(supplied.encode(), TOKEN.encode()):
+        return RedirectResponse("/login?reason=bad-token", status_code=303)
+    return _session_cookie(RedirectResponse("/", status_code=303))
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots() -> str:
     return "User-agent: *\nDisallow: /\n"
+
+
+LOGIN_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>UNBLOCK preview — sign in</title>
+<style>
+ body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d1117;
+      color:#e6edf3;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+ form{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:26px;width:min(92vw,400px)}
+ h1{font-size:15px;margin:0 0 6px} p{color:#8b949e;margin:0 0 16px}
+ .note{color:#d29922}
+ input{width:100%;padding:9px;border-radius:5px;border:1px solid #30363d;
+       background:#0d1117;color:inherit;font:inherit;margin-bottom:12px}
+ button{width:100%;padding:9px;border-radius:5px;border:1px solid #2ea043;
+        background:#238636;color:#fff;font:inherit;cursor:pointer}
+</style></head><body>
+<form method="post" action="/login">
+  <h1>UNBLOCK — owner preview</h1>
+  <p>Mock rail. No real money. <span class="note">{{note}}</span></p>
+  <input type="password" name="token" placeholder="preview token" autofocus autocomplete="off">
+  <button type="submit">enter</button>
+</form></body></html>
+"""
 
 
 UI_HTML = """<!doctype html>
