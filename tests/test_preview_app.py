@@ -560,3 +560,12 @@ def test_an_unpriced_merchant_is_refused_rather_than_guessed(client):
 def test_the_story_requests_the_challenge_at_its_own_price(client):
     page = client.get("/", headers=auth()).text
     assert "/api/merchant/challenge?price=${price}" in page
+
+
+def test_the_story_column_marks_its_own_payment_as_mock(client):
+    """The right-hand panel badged NOT BROADCAST while the story column showed
+    a receipt id next to a dollar amount with nothing to say it was a mock.
+    The story column is the one that gets filmed and cropped."""
+    page = client.get("/", headers=auth()).text
+    story_receipt = page[page.index("L.s4t_pay, L.s4p_pay"):]
+    assert "badge mock" in story_receipt[:600]

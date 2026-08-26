@@ -958,9 +958,13 @@ async function decide(action){
 async function paid(verdict, beforeBody, price){
   const free = verdict.status === "done-free";
   if (!free && price)
+    // The badge belongs on this side too: the story column is what gets
+    // filmed and screenshotted, and a receipt id next to a dollar amount
+    // reads as a real payment once it is cropped out of the page.
     step(4, "good", L.s4t_pay, L.s4p_pay,
       `<div class="fact"><span class="mono">${esc(verdict.receipt?.tx || "")}</span> ·
-        $${verdict.receipt?.amount || price} ${esc(verdict.receipt?.currency || "USDC")}</div>`);
+        $${verdict.receipt?.amount || price} ${esc(verdict.receipt?.currency || "USDC")}
+        <span class="badge mock" style="margin-left:6px">${esc(L.v_notbroadcast)}</span></div>`);
 
   STEP = 5;
   const after = await call("/api/site");
