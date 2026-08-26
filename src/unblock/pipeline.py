@@ -40,8 +40,12 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import quote
 
+from opentelemetry import trace
+
 from clerk.jobs import Clerk
 from clerk.policy import Invoice
+
+_tracer = trace.get_tracer("unblock")
 
 _LINK = re.compile(r"\[[^\]]*\]\(([^)#?\s]+)(?:[#?][^)]*)?\)")
 
@@ -89,16 +93,18 @@ def detect(site_dir: Path) -> list[Incident]:
     """Deterministic link check: every relative markdown link must resolve to
     an existing file INSIDE the site. External schemes are out of scope."""
     site_dir = site_dir.resolve()
-    incidents = []
-    for md in sorted(site_dir.rglob("*.md")):
-        rel = str(md.relative_to(site_dir))
-        for target in _LINK.findall(md.read_text()):
-            if "://" in target or target.startswith("mailto:"):
-                continue
-            resolved = (md.parent / target).resolve()
-            if not resolved.is_relative_to(site_dir) or not resolved.exists():
-                incidents.append(Incident(file=rel, link=target))
-    return incidents
+    with _tracer.start_as_current_span("detect") as span:
+        incidents = []
+        for md in sorted(site_dir.rglob("*.md")):
+            rel = str(md.relative_to(site_dir))
+            for target in _LINK.findall(md.read_text()):
+                if "://" in target or target.startswith("mailto:"):
+                    continue
+                resolved = (md.parent / target).resolve()
+                if not resolved.is_relative_to(site_dir) or not resolved.exists():
+                    incidents.append(Incident(file=rel, link=target))
+        span.set_attribute("unblock.broken_links", len(incidents))
+        return incidents
 
 
 class Unblock:
@@ -122,6 +128,19 @@ class Unblock:
     # -- public ---------------------------------------------------------------
 
     def run(self, incident: Incident) -> dict:
+        """One incident end-to-end under a single trace root carrying the
+        job id; every stage below emits a child span (clerk adds policy/pay)."""
+        with _tracer.start_as_current_span("unblock.job", attributes={
+            "unblock.job_id": incident.job_id,
+            "unblock.incident_id": incident.incident_id,
+            "unblock.file": incident.file,
+            "unblock.link": incident.link,
+        }) as span:
+            result = self._run(incident)
+            span.set_attribute("unblock.status", result["status"])
+            return result
+
+    def _run(self, incident: Incident) -> dict:
         pr_path = self.pr_dir / f"{incident.job_id}.md"
         if pr_path.exists():
             return {"status": "already-done", "job_id": incident.job_id, "pr": str(pr_path)}
@@ -147,8 +166,10 @@ class Unblock:
                             "why": "purchase not authorized and no free source known"}
                 source = {"kind": "free-fallback", "receipt": None}
             else:  # DONE - paid now, or already paid on an earlier (crashed) run
-                receipt = clerk.ledger.receipt(invoice) or {}
-                new_target = self._replacement_from(receipt, incident.link)
+                with _tracer.start_as_current_span("fetch") as span:
+                    receipt = clerk.ledger.receipt(invoice) or {}
+                    new_target = self._replacement_from(receipt, incident.link)
+                    span.set_attribute("unblock.intel_valid", new_target is not None)
                 if new_target is None:
                     return {"status": "failed", "job_id": incident.job_id,
                             "why": "paid response failed strict intel validation "
@@ -159,14 +180,21 @@ class Unblock:
         finally:
             clerk.ledger.close()
 
-        diff = self._apply_fix(incident, new_target)
+        with _tracer.start_as_current_span("fix") as span:
+            diff = self._apply_fix(incident, new_target)
+            span.set_attribute("unblock.fix_applied", diff is not None)
         if diff is None:
             return {"status": "failed", "job_id": incident.job_id,
                     "why": "replacement target is unsafe or does not exist"}
-        remaining = detect(self.site_dir)
-        if any(i.incident_id == incident.incident_id for i in remaining):
+        with _tracer.start_as_current_span("verify") as span:
+            remaining = detect(self.site_dir)
+            resolved = not any(i.incident_id == incident.incident_id for i in remaining)
+            span.set_attribute("unblock.resolved", resolved)
+        if not resolved:
             return {"status": "failed", "job_id": incident.job_id, "why": "fix did not verify"}
-        self._write_pr(pr_path, incident, invoice, new_target, source, diff, len(remaining))
+        with _tracer.start_as_current_span("pr") as span:
+            self._write_pr(pr_path, incident, invoice, new_target, source, diff, len(remaining))
+            span.set_attribute("unblock.pr", pr_path.name)
         status = "done-paid" if source["kind"] == "paid" else "done-free"
         return {"status": status, "job_id": incident.job_id, "pr": str(pr_path),
                 "receipt": source["receipt"]}

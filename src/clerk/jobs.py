@@ -25,9 +25,23 @@ and leaves the row PAYING for a human if the rail has no record either.
 
 from __future__ import annotations
 
+from opentelemetry import trace
+
 from .ledger import Ledger
 from .policy import Decision, Invoice, Policy, evaluate
 from .rails import PaymentRail, RailError, SettlementUncertain
+
+_tracer = trace.get_tracer("clerk")
+
+
+def _invoice_attrs(invoice: Invoice) -> dict:
+    return {
+        "clerk.merchant": invoice.merchant,
+        "clerk.invoice_id": invoice.invoice_id,
+        "clerk.amount": str(invoice.amount),
+        "clerk.currency": invoice.currency,
+        "clerk.invoice_digest": invoice.digest(),
+    }
 
 
 class Clerk:
@@ -42,6 +56,8 @@ class Clerk:
         """Returns the job's final state for this attempt."""
         self.ledger.upsert_job(job_id, "RUNNING", {"work": work}, invoice)
         self.ledger.claim(invoice)
+        # Observability note: spans carry ids, amounts, decisions and digests
+        # only - never rail keys, paid response bodies, or approval tokens.
 
         if not self.ledger.digest_ok(invoice):
             # Same (merchant, invoice_id), different terms: substitution. Never payable.
@@ -61,7 +77,10 @@ class Clerk:
             self.ledger.upsert_job(job_id, "WAITING_APPROVAL", {"work": work, "why": "reconcile PAYING"}, invoice)
             return "WAITING_APPROVAL"
 
-        verdict = evaluate(invoice, self.policy, self.ledger.spent_this_week(self.policy.currency))
+        with _tracer.start_as_current_span("policy", attributes=_invoice_attrs(invoice)) as span:
+            verdict = evaluate(invoice, self.policy, self.ledger.spent_this_week(self.policy.currency))
+            span.set_attribute("clerk.decision", verdict.decision.value)
+            span.set_attribute("clerk.reason", verdict.reason)
         if verdict.decision is Decision.DENY:
             self.ledger.mark(invoice, "DENIED", verdict.reason)
             self.ledger.upsert_job(job_id, "FAILED", {"work": work, "why": verdict.reason}, invoice)
@@ -152,7 +171,10 @@ class Clerk:
             self.ledger.upsert_job(job_id, "WAITING_APPROVAL", {"work": work, "why": "lost payment race"}, invoice)
             return "WAITING_APPROVAL"
         try:
-            receipt = self.rail.pay(invoice)
+            with _tracer.start_as_current_span("pay", attributes=_invoice_attrs(invoice)) as span:
+                span.set_attribute("clerk.rail", self.rail.name)
+                receipt = self.rail.pay(invoice)
+                span.set_attribute("clerk.tx", receipt.get("tx", ""))
         except RailError as e:
             # Rail refused BEFORE anything was signed: safe to retry later from ASK_PENDING.
             self.ledger.mark(invoice, "ASK_PENDING", f"rail error: {e}")

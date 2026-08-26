@@ -26,6 +26,7 @@ from strands import Agent, tool  # noqa: E402
 from model_provider import build_model  # noqa: E402
 
 from clerk.jobs import Clerk  # noqa: E402
+from unblock.tracing import configure_tracing  # noqa: E402
 from clerk.ledger import Ledger  # noqa: E402
 from clerk.policy import Policy  # noqa: E402
 from clerk.rails import FileRail  # noqa: E402
@@ -42,6 +43,10 @@ ap.add_argument("--rail", choices=["mock", "x402"], default="mock")
 ap.add_argument("--provider", choices=["bedrock", "anthropic"], default="bedrock")
 ap.add_argument("--model-id", default=None)
 args = ap.parse_args()
+
+trace_mode = configure_tracing()
+if trace_mode != "off":
+    print(f"[tracing: {trace_mode}]")
 
 RUN_DIR.mkdir(parents=True, exist_ok=True)
 site = RUN_DIR / "site"

@@ -29,6 +29,9 @@ from clerk.ledger import Ledger  # noqa: E402
 from clerk.policy import Policy  # noqa: E402
 from clerk.rails import MockRail  # noqa: E402
 from unblock import IntelOffer, Unblock, detect  # noqa: E402
+from unblock.tracing import configure_tracing  # noqa: E402
+
+configure_tracing()
 
 REPO = Path(__file__).resolve().parent.parent
 RUN_DIR = REPO / "demo" / "reject_run"
