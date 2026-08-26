@@ -2,7 +2,9 @@
 
 Idempotency contract (the double-pay defence, in order):
   1. An invoice row is claimed with INSERT ... ON CONFLICT DO NOTHING on the
-     UNIQUE (merchant, invoice_id) key BEFORE any rail is called.
+     UNIQUE (merchant, invoice_id) key BEFORE any rail is called. The row pins
+     the invoice digest (amount/currency/memo hash); a later invoice with the
+     same key but different terms fails the digest check and is never paid.
   2. The claim moves atomically NEW -> PAYING via a conditional UPDATE; only the
      process that wins that UPDATE may talk to the rail. A concurrent second
      run loses the UPDATE and must back off.
@@ -11,9 +13,16 @@ Idempotency contract (the double-pay defence, in order):
 
 Crash window: if the process dies after the rail settled but before step 3
 committed, the row is left PAYING. Recovery policy (documented, deliberate):
-a PAYING row is never re-paid automatically - `recover` surfaces it with the
-rail's own transaction lookup so a human (or a verifier job) reconciles it.
+a PAYING row is never re-paid automatically - reconciliation queries the rail's
+own settlement lookup by (merchant, invoice_id); if the rail confirms a
+settlement, the receipt is adopted (PAYING -> PAID) without moving money again;
+if the rail has no record, the row stays PAYING for a human/verifier decision.
 Losing a receipt is recoverable; paying twice is not.
+
+Approvals are terminal: PRIMARY KEY (merchant, invoice_id) admits exactly one
+decision (APPROVED or REJECTED) per invoice, bound to the invoice digest at
+decision time. There is no revision path; a wrong decision means issuing a new
+invoice_id.
 """
 
 from __future__ import annotations
@@ -32,6 +41,8 @@ CREATE TABLE IF NOT EXISTS invoices (
   invoice_id TEXT NOT NULL,
   amount     TEXT NOT NULL,
   currency   TEXT NOT NULL,
+  memo       TEXT NOT NULL DEFAULT '',
+  digest     TEXT NOT NULL,
   state      TEXT NOT NULL DEFAULT 'NEW',  -- NEW | PAYING | PAID | ASK_PENDING | DENIED
   verdict    TEXT,
   receipt    TEXT,
@@ -40,13 +51,14 @@ CREATE TABLE IF NOT EXISTS invoices (
   PRIMARY KEY (merchant, invoice_id)
 );
 CREATE TABLE IF NOT EXISTS approvals (
-  merchant   TEXT NOT NULL,
-  invoice_id TEXT NOT NULL,
-  action     TEXT NOT NULL,               -- APPROVED | REJECTED
-  actor      TEXT NOT NULL,
-  note       TEXT,
-  created_at REAL NOT NULL,
-  PRIMARY KEY (merchant, invoice_id, action)
+  merchant       TEXT NOT NULL,
+  invoice_id     TEXT NOT NULL,
+  action         TEXT NOT NULL,           -- APPROVED | REJECTED (terminal, exactly one row)
+  actor          TEXT NOT NULL,
+  note           TEXT,
+  invoice_digest TEXT NOT NULL,
+  created_at     REAL NOT NULL,
+  PRIMARY KEY (merchant, invoice_id)
 );
 CREATE TABLE IF NOT EXISTS jobs (
   job_id     TEXT PRIMARY KEY,
@@ -68,17 +80,28 @@ class Ledger:
         self.conn.executescript(SCHEMA)
         self.conn.commit()
 
+    def close(self) -> None:
+        self.conn.close()
+
     # -- invoice lifecycle -------------------------------------------------
 
     def claim(self, inv: Invoice) -> None:
         """Ensure the unique row exists before any payment attempt (contract step 1)."""
         now = time.time()
         self.conn.execute(
-            "INSERT INTO invoices (merchant, invoice_id, amount, currency, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?) ON CONFLICT(merchant, invoice_id) DO NOTHING",
-            (inv.merchant, inv.invoice_id, str(inv.amount), inv.currency, now, now),
+            "INSERT INTO invoices (merchant, invoice_id, amount, currency, memo, digest, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(merchant, invoice_id) DO NOTHING",
+            (inv.merchant, inv.invoice_id, str(inv.amount), inv.currency, inv.memo, inv.digest(), now, now),
         )
         self.conn.commit()
+
+    def digest_ok(self, inv: Invoice) -> bool:
+        """True iff the presented invoice matches the terms pinned at first claim."""
+        row = self.conn.execute(
+            "SELECT digest FROM invoices WHERE merchant=? AND invoice_id=?",
+            (inv.merchant, inv.invoice_id),
+        ).fetchone()
+        return row is not None and row[0] == inv.digest()
 
     def state(self, inv: Invoice) -> str | None:
         row = self.conn.execute(
@@ -128,29 +151,48 @@ class Ledger:
         ).fetchone()
         return json.loads(row[0]) if row and row[0] else None
 
+    def invoice_row(self, merchant: str, invoice_id: str) -> Invoice | None:
+        row = self.conn.execute(
+            "SELECT amount, currency, memo FROM invoices WHERE merchant=? AND invoice_id=?",
+            (merchant, invoice_id),
+        ).fetchone()
+        if not row:
+            return None
+        return Invoice(
+            invoice_id=invoice_id, merchant=merchant,
+            amount=Decimal(row[0]), currency=row[1], memo=row[2],
+        )
+
     # -- approvals ---------------------------------------------------------
 
-    def record_approval(self, inv: Invoice, action: str, actor: str, note: str = "") -> bool:
-        """Idempotent: the PRIMARY KEY makes a duplicate approval a no-op (returns False)."""
+    def record_decision(self, inv: Invoice, action: str, actor: str, note: str = "") -> bool:
+        """Terminal and idempotent: the first decision per (merchant, invoice_id)
+        wins; any later insert - same action or conflicting - is a no-op (False).
+        The decision is bound to the invoice digest at decision time."""
         try:
             self.conn.execute(
-                "INSERT INTO approvals (merchant, invoice_id, action, actor, note, created_at)"
-                " VALUES (?,?,?,?,?,?)",
-                (inv.merchant, inv.invoice_id, action, actor, note, time.time()),
+                "INSERT INTO approvals (merchant, invoice_id, action, actor, note, invoice_digest, created_at)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (inv.merchant, inv.invoice_id, action, actor, note, inv.digest(), time.time()),
             )
             self.conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
 
+    def decision(self, inv: Invoice) -> tuple[str, str] | None:
+        """Returns (action, invoice_digest) of the terminal decision, or None."""
+        row = self.conn.execute(
+            "SELECT action, invoice_digest FROM approvals WHERE merchant=? AND invoice_id=?",
+            (inv.merchant, inv.invoice_id),
+        ).fetchone()
+        return (row[0], row[1]) if row else None
+
     def approved(self, inv: Invoice) -> bool:
-        return (
-            self.conn.execute(
-                "SELECT 1 FROM approvals WHERE merchant=? AND invoice_id=? AND action='APPROVED'",
-                (inv.merchant, inv.invoice_id),
-            ).fetchone()
-            is not None
-        )
+        """True only for an APPROVED decision whose digest matches THIS invoice's
+        terms - an approval given for different terms never authorizes payment."""
+        d = self.decision(inv)
+        return d is not None and d[0] == "APPROVED" and d[1] == inv.digest()
 
     # -- jobs ---------------------------------------------------------------
 

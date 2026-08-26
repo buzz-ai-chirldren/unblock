@@ -7,9 +7,20 @@ run_job() drives one unit of work that hits a paywall:
     ASK   -> WAITING_APPROVAL (durable; survives restarts)
     DENY  -> FAILED
 
-approve() records the human decision (idempotent). resume() re-runs the SAME
-job with the SAME invoice: policy is bypassed only by the recorded approval,
-and the ledger's PAYING/PAID states still guarantee at-most-once settlement.
+Invoice substitution: the ledger pins the invoice digest at first claim. A
+later invoice reusing the same (merchant, invoice_id) with different
+amount/currency/memo fails the digest check and the job FAILs before any
+payment path is reachable.
+
+approve()/reject() record the terminal human decision (first one wins; later
+calls are no-ops). resume() re-runs the SAME job with the invoice terms read
+back from the ledger: an APPROVED decision authorizes payment only if its
+digest matches those terms, a REJECTED decision ends the job, and the ledger's
+PAYING/PAID states still guarantee at-most-once settlement.
+
+reconcile() handles the crash window (rail settled, receipt not recorded): it
+adopts the rail's own settlement record for a PAYING row - never pays again -
+and leaves the row PAYING for a human if the rail has no record either.
 """
 
 from __future__ import annotations
@@ -32,6 +43,15 @@ class Clerk:
         self.ledger.upsert_job(job_id, "RUNNING", {"work": work}, invoice)
         self.ledger.claim(invoice)
 
+        if not self.ledger.digest_ok(invoice):
+            # Same (merchant, invoice_id), different terms: substitution. Never payable.
+            self.ledger.upsert_job(
+                job_id, "FAILED",
+                {"work": work, "why": "invoice terms differ from first-claimed digest"},
+                invoice,
+            )
+            return "FAILED"
+
         state = self.ledger.state(invoice)
         if state == "PAID":
             # Invoice already settled in an earlier run: finish the job, pay nothing.
@@ -47,6 +67,11 @@ class Clerk:
             self.ledger.upsert_job(job_id, "FAILED", {"work": work, "why": verdict.reason}, invoice)
             return "FAILED"
         if verdict.decision is Decision.ASK and not self.ledger.approved(invoice):
+            decision = self.ledger.decision(invoice)
+            if decision is not None and decision[0] == "REJECTED":
+                self.ledger.mark(invoice, "DENIED", "rejected by human decision")
+                self.ledger.upsert_job(job_id, "FAILED", {"work": work, "why": "rejected"}, invoice)
+                return "FAILED"
             self.ledger.mark(invoice, "ASK_PENDING", verdict.reason)
             self.ledger.upsert_job(job_id, "WAITING_APPROVAL", {"work": work, "why": verdict.reason}, invoice)
             return "WAITING_APPROVAL"
@@ -54,30 +79,64 @@ class Clerk:
         return self._pay_and_finish(job_id, invoice, work)
 
     def approve(self, invoice: Invoice, actor: str, note: str = "") -> bool:
-        """Record the human decision; duplicate approvals are no-ops (False)."""
-        return self.ledger.record_approval(invoice, "APPROVED", actor, note)
+        """Record the terminal APPROVED decision; any later call is a no-op (False)."""
+        return self.ledger.record_decision(invoice, "APPROVED", actor, note)
+
+    def reject(self, invoice: Invoice, actor: str, note: str = "") -> bool:
+        """Record the terminal REJECTED decision; any later call is a no-op (False)."""
+        return self.ledger.record_decision(invoice, "REJECTED", actor, note)
 
     def resume(self, job_id: str) -> str:
-        """Re-drive a WAITING_APPROVAL job after (or without) an approval."""
+        """Re-drive a WAITING_APPROVAL job after (or without) a decision."""
         job = self.ledger.job(job_id)
         if job is None:
             raise KeyError(job_id)
         if job["state"] == "DONE":
             return "DONE"
-        inv_state_row = self.ledger.conn.execute(
-            "SELECT amount, currency FROM invoices WHERE merchant=? AND invoice_id=?",
-            (job["merchant"], job["invoice_id"]),
-        ).fetchone()
-        invoice = Invoice(
-            invoice_id=job["invoice_id"], merchant=job["merchant"],
-            amount=__import__("decimal").Decimal(inv_state_row[0]), currency=inv_state_row[1],
-        )
+        # Rebuild the invoice from the ledger's pinned terms, never from caller input.
+        invoice = self.ledger.invoice_row(job["merchant"], job["invoice_id"])
+        if invoice is None:
+            raise KeyError(f"no invoice row for job {job_id}")
         state = self.ledger.state(invoice)
         if state == "PAID":
             return self._finish(job_id, invoice, note="already-paid")
-        if not self.ledger.approved(invoice):
+        if state == "PAYING":
+            return self.reconcile(job_id)
+        decision = self.ledger.decision(invoice)
+        if decision is None:
             return "WAITING_APPROVAL"  # still parked; not an error
+        action, digest = decision
+        if action == "REJECTED":
+            self.ledger.mark(invoice, "DENIED", "rejected by human decision")
+            self.ledger.upsert_job(job_id, "FAILED", {**job["payload"], "why": "rejected"}, invoice)
+            return "FAILED"
+        if digest != invoice.digest():
+            # Approval was given for different terms; it authorizes nothing.
+            self.ledger.upsert_job(
+                job_id, "WAITING_APPROVAL",
+                {**job["payload"], "why": "approval digest mismatch; new decision required"},
+                invoice,
+            )
+            return "WAITING_APPROVAL"
         return self._pay_and_finish(job_id, invoice, job["payload"].get("work", ""))
+
+    def reconcile(self, job_id: str) -> str:
+        """Crash-window recovery for a PAYING row: adopt the rail's settlement
+        record if one exists (no new payment); otherwise leave the row PAYING
+        for a human/verifier - never auto re-pay."""
+        job = self.ledger.job(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        invoice = self.ledger.invoice_row(job["merchant"], job["invoice_id"])
+        if invoice is None:
+            raise KeyError(f"no invoice row for job {job_id}")
+        if self.ledger.state(invoice) != "PAYING":
+            return job["state"]
+        settlement = self.rail.lookup(invoice)
+        if settlement is None:
+            return "WAITING_APPROVAL"  # unresolved: rail shows no settlement; human decides
+        self.ledger.record_paid(invoice, settlement)
+        return self._finish(job_id, invoice, note=settlement.get("tx", ""))
 
     # -- internals ----------------------------------------------------------
 

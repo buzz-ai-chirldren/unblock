@@ -13,6 +13,7 @@ requests with a deny, and nothing waits for a human or resumes the job.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
@@ -33,6 +34,14 @@ class Invoice:
     amount: Decimal
     currency: str
     memo: str = ""
+
+    def digest(self) -> str:
+        """Hash of the payment terms as presented. The ledger pins the digest at
+        first claim and approvals bind to it, so a merchant re-issuing the same
+        invoice_id with different amount/currency/memo can never ride an earlier
+        claim or an earlier human approval."""
+        canon = "|".join([self.merchant, self.invoice_id, str(self.amount), self.currency, self.memo])
+        return hashlib.sha256(canon.encode()).hexdigest()
 
 
 @dataclass(frozen=True)
