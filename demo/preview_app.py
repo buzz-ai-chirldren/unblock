@@ -580,10 +580,16 @@ UI_HTML = r"""<!doctype html>
   button.reject { background:#4a1f1f; border-color:#6e2b2b; }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   .steps { margin:30px 0 0; display:grid; gap:12px; }
+  .step, .rule, .verdict, .w-entry {
+          opacity:0; transform:translateY(6px); animation:in .3s ease forwards; }
   .step { background:var(--panel); border:1px solid var(--line); border-radius:8px;
-          padding:16px 18px; display:grid; grid-template-columns:30px 1fr; gap:14px;
-          opacity:0; transform:translateY(6px); animation:in .35s ease forwards; }
+          padding:16px 18px; display:grid; grid-template-columns:30px 1fr; gap:14px; }
   @keyframes in { to { opacity:1; transform:none } }
+  @media (prefers-reduced-motion: reduce) {
+    /* Order and pacing still carry the meaning; only the movement goes. */
+    .step, .rule, .verdict, .w-entry { animation:none; opacity:1; transform:none; }
+    .wire { transition:none; }
+  }
   .num { width:26px; height:26px; border-radius:50%; background:#21262d;
          border:1px solid var(--line); display:grid; place-items:center;
          font-size:13px; color:var(--dim); }
@@ -885,11 +891,26 @@ async function meta(){
   document.getElementById("meta").textContent = `${h.commit.slice(0,7)} · ${h.expires_at_utc}`;
 }
 
+// The story is paced so a person can read one thing before the next arrives.
+// The delay sits BEFORE each request, not after it, so the step on the left and
+// its wire entry on the right appear together and neither runs ahead of the
+// work it describes.
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const pace = (ms) => new Promise(r => setTimeout(r, REDUCED ? Math.min(ms, 120) : ms));
+const BEAT = 800, HALF = 380;
+
 const steps = () => document.getElementById("steps");
 function add(html){ const n = el(html); steps().appendChild(n); n.scrollIntoView({behavior:"smooth", block:"end"}); return n; }
 const step = (n, cls, title, body, extra="") => add(
   `<div class="step ${cls}"><div class="num">${n}</div><div>
      <h3>${esc(title)}</h3><p>${esc(body)}</p>${extra}</div></div>`);
+
+// Append into an already-visible step, so a group of checks arrives one at a
+// time rather than as a finished list.
+async function reveal(node, html, wait = HALF) {
+  node.querySelector("div:last-child").appendChild(el(html));
+  await pace(wait);
+}
 
 let PENDING = null;
 
@@ -900,6 +921,7 @@ async function story(scenario){
   STEP = 0;
   await call("/api/demo/reset", {method:"POST"});
 
+  await pace(BEAT);
   STEP = 1;
   const before = await call("/api/site");
   const index = before.find(f => f.path === "index.md");
@@ -908,31 +930,43 @@ async function story(scenario){
     `<div class="fact">index.md → <span class="mono">${esc(broken)}</span> ✕</div>`);
 
   const price = scenario === "allow" ? "0.05" : "0.50";
+  await pace(BEAT);
   STEP = 2;
   // Ask the merchant for the terms at the price this run is about to narrate,
   // so the story and the wire log cannot disagree about what it costs.
-  const ch = await call(`/api/merchant/challenge?price=${price}`);
+  await call(`/api/merchant/challenge?price=${price}`);
   step(2, "", L.s2t, L.s2p,
     `<div class="fact">HTTP <span class="mono">402 Payment Required</span> ·
       ${L.k_price}: <span class="mono">$${price} USDC</span> ·
       ${L.k_shop}: <span class="mono">${esc(scenario === "ask-unknown-merchant" ? "stranger.example" : "intel.example")}</span></div>`);
 
-  STEP = 3;
+  await pace(BEAT);
   const overCap = Number(price) > 0.10;
-  step(3, overCap ? "ask" : "good", L.s3t, L.s3p, `
-    <div class="rules">
-      <div class="rule"><span class="${overCap ? "no" : "yes"}">${overCap ? "✕" : "✓"}</span>
-        <span>${L.r_cap}: $0.10 &nbsp;<span class="dim">(→ $${price})</span></span></div>
-      <div class="rule"><span class="yes">✓</span><span>${L.r_week}: $1.00</span></div>
-      <div class="rule"><span class="yes">✓</span><span>${L.r_shop}: intel.example</span></div>
-    </div>
-    <div class="verdict ${overCap ? "ask" : "pay"}">${overCap ? L.v_ask : L.v_pay}</div>`);
+  const known = scenario !== "ask-unknown-merchant";
+  const card = step(3, overCap || !known ? "ask" : "good", L.s3t, L.s3p,
+    `<div class="rules"></div>`);
+  const rules = card.querySelector(".rules");
+  // One check at a time: the point of this step is that a rule was applied,
+  // and a finished list does not show anything being applied.
+  const checks = [
+    [!overCap, `${L.r_cap}: $0.10 &nbsp;<span class="dim">(→ $${price})</span>`],
+    [true, `${L.r_week}: $1.00`],
+    [known, `${L.r_shop}: intel.example`],
+  ];
+  for (const [ok, text] of checks) {
+    rules.appendChild(el(`<div class="rule"><span class="${ok ? "yes" : "no"}">${ok ? "✓" : "✕"}</span><span>${text}</span></div>`));
+    await pace(HALF);
+  }
 
   STEP = 4;
   const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"});
   const verdict = run.verdicts[0];
+  const parked = verdict.status === "waiting-approval";
+  // The verdict line comes from what the policy actually returned, not from a
+  // restatement of it, so the screen cannot claim a decision the code did not make.
+  await reveal(card, `<div class="verdict ${parked ? "ask" : "pay"}">${parked ? L.v_ask : L.v_pay}</div>`, BEAT);
 
-  if (verdict.status === "waiting-approval") {
+  if (parked) {
     PENDING = {job: verdict.job_id, scenario, before: index.body, price};
     step(4, "ask", L.s4t_ask, L.s4p_ask, `
       <div class="fact"><b>${L.decide}</b> — $${price} USDC → intel.example</div>
@@ -940,9 +974,9 @@ async function story(scenario){
         <button class="approve" onclick="decide('APPROVE')">${L.approve}</button>
         <button class="reject" onclick="decide('REJECT')">${L.reject}</button>
       </div>`);
-    return;
+    return;   // nothing further is generated until a human chooses
   }
-  paid(verdict, index.body, price);
+  await paid(verdict, index.body, price);
 }
 
 async function decide(action){
@@ -951,8 +985,9 @@ async function decide(action){
   STEP = 4;
   await call(`/approval/v1/approvals/${job}/decision`, {
     method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({action})});
+  await pace(BEAT);
   const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"});
-  paid(run.verdicts[0], before, action === "APPROVE" ? price : null);
+  await paid(run.verdicts[0], before, action === "APPROVE" ? price : null);
 }
 
 async function paid(verdict, beforeBody, price){
@@ -965,7 +1000,9 @@ async function paid(verdict, beforeBody, price){
       `<div class="fact"><span class="mono">${esc(verdict.receipt?.tx || "")}</span> ·
         $${verdict.receipt?.amount || price} ${esc(verdict.receipt?.currency || "USDC")}
         <span class="badge mock" style="margin-left:6px">${esc(L.v_notbroadcast)}</span></div>`);
+  }
 
+  await pace(BEAT);
   STEP = 5;
   const after = await call("/api/site");
   const afterIndex = after.find(f => f.path === "index.md").body;

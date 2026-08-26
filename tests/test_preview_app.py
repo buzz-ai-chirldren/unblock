@@ -569,3 +569,48 @@ def test_the_story_column_marks_its_own_payment_as_mock(client):
     page = client.get("/", headers=auth()).text
     story_receipt = page[page.index("L.s4t_pay, L.s4p_pay"):]
     assert "badge mock" in story_receipt[:600]
+
+
+# -- the story arrives one step at a time -----------------------------------
+
+def test_the_steps_are_paced_rather_than_dumped(client):
+    """One click used to print all five steps at once: a result list, not a
+    sequence. The owner could not narrate it."""
+    page = client.get("/", headers=auth()).text
+    assert "const pace = (ms)" in page
+    assert "await pace(BEAT)" in page
+    assert "async function reveal(" in page
+
+
+def test_the_pause_precedes_the_request_so_both_columns_move_together(client):
+    page = client.get("/", headers=auth()).text
+    story = page[page.index("async function story(scenario)"):page.index("async function decide")]
+    # each phase waits, then calls, then draws - never draws ahead of the work
+    assert story.index("await pace(BEAT)") < story.index('await call("/api/site")')
+    assert story.count("await pace(") >= 4
+
+
+def test_reduced_motion_keeps_the_order_and_drops_the_movement(client):
+    page = client.get("/", headers=auth()).text
+    assert "prefers-reduced-motion" in page
+    assert "Math.min(ms, 120)" in page, "reduced motion must still be sequential"
+    assert "animation:none" in page
+
+
+def test_the_expensive_path_generates_nothing_past_the_human(client):
+    page = client.get("/", headers=auth()).text
+    story = page[page.index("async function story(scenario)"):page.index("async function decide")]
+    parked = story[story.index("if (parked) {"):]
+    assert "return;" in parked, "the story must stop at the decision"
+    assert "L.s5t" not in parked, "step 5 is generated before anyone chose"
+
+
+def test_the_verdict_line_comes_from_the_policy_not_a_restatement(client):
+    page = client.get("/", headers=auth()).text
+    assert 'const parked = verdict.status === "waiting-approval";' in page
+    assert "await reveal(card," in page
+
+
+def test_the_run_buttons_are_disabled_while_a_story_runs(client):
+    page = client.get("/", headers=auth()).text
+    assert 'for (const id of ["go","go2"]) document.getElementById(id).disabled = true;' in page
