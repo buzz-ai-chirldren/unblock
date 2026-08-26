@@ -730,6 +730,7 @@ const JA = {
   w_402:"これは請求書であって、支払いではありません。x402では、この条件を見たクライアントが X-PAYMENT 署名を付けて再送し、そこで facilitator が on-chain の settle を行います。このpreviewはmock railなのでそこまで進みません。payTo が 0x…dEaD（burn address）、URLが testserver なのは、プロセス内で条件だけを取り出しているからで、ここからは1円も動かせません。",
   w_decide:"人間の決定はここで記録されます。state:FAILED は「支払いを許可しなかった」という意味で、仕事の失敗ではありません。次のrunが無料の代替で完了させます。",
   w_toggle:"データを見る", w_close:"閉じる",
+  err_t:"途中で失敗しました", err_p:"保留していたデータは破棄しました。もう一度はじめから試してください。",
   k_amount:"金額", k_network:"ネットワーク", k_asset:"通貨", k_payto:"支払先",
   k_merchant:"相手", k_settle:"決済", k_rail:"経路", k_verdict:"判定",
   k_job:"ジョブ", k_action:"決定", k_state:"状態", k_files:"ファイル", k_count:"件数",
@@ -771,6 +772,7 @@ const EN = {
   w_402:"This is an invoice, not a payment. In x402 the client retries with a signed X-PAYMENT header and the facilitator settles on-chain at that point. This preview runs on the mock rail and never gets there. payTo is 0x…dEaD (the burn address) and the URL says testserver because the terms are pulled in-process - nothing here can move a cent.",
   w_decide:"The human decision is recorded here. state:FAILED means the purchase was not authorised, not that the job failed - the next run finishes it from a free source.",
   w_toggle:"Show data", w_close:"Close",
+  err_t:"The run failed part-way", err_p:"Anything held back was discarded. Start over.",
   k_amount:"Amount", k_network:"Network", k_asset:"Asset", k_payto:"Pay to",
   k_merchant:"Merchant", k_settle:"Settlement", k_rail:"Rail", k_verdict:"Verdict",
   k_job:"Job", k_action:"Decision", k_state:"State", k_files:"Files", k_count:"Count",
@@ -880,6 +882,18 @@ function logWire(verb, path, status, body, atStep = STEP) {
 const el = (h) => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstChild; };
 const esc = (t) => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
+// One place to end a run badly. A held response must never survive an error:
+// the next story would flush somebody else's outcome into the panel.
+function abortStory(error) {
+  HELD = [];
+  for (const id of ["go","go2"]) document.getElementById(id).disabled = false;
+  const banner = el(`<div class="step ask"><div class="num">!</div><div>
+      <h3>${esc(L.err_t)}</h3><p>${esc(L.err_p)}</p>
+      <div class="fact mono">${esc(String(error && error.message || error))}</div></div></div>`);
+  steps().appendChild(banner);
+  banner.scrollIntoView({behavior: "smooth", block: "end"});
+}
+
 function toggleWire(){
   const open = document.querySelector(".wire").classList.toggle("open");
   document.getElementById("wiretoggle").textContent = open ? L.w_close : L.w_toggle;
@@ -930,6 +944,10 @@ async function reveal(node, html, wait = HALF) {
 let PENDING = null;
 
 async function story(scenario){
+  try { await runStory(scenario); } catch (error) { abortStory(error); }
+}
+
+async function runStory(scenario){
   for (const id of ["go","go2"]) document.getElementById(id).disabled = true;
   steps().innerHTML = "";
   document.getElementById("wirelog").innerHTML = "";
@@ -1004,6 +1022,10 @@ async function story(scenario){
 }
 
 async function decide(action){
+  try { await runDecision(action); } catch (error) { abortStory(error); }
+}
+
+async function runDecision(action){
   const {job, scenario, before, price} = PENDING;
   for (const b of document.querySelectorAll(".approve,.reject")) b.disabled = true;
   STEP = 4;

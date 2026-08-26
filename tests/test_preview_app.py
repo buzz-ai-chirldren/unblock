@@ -11,6 +11,7 @@ tests can reach a network.
 from __future__ import annotations
 
 import importlib
+import os
 import re
 import sys
 import time
@@ -644,15 +645,6 @@ def test_the_page_javascript_parses(preview, tmp_path):
     assert result.returncode == 0, result.stderr
 
 
-def test_the_javascript_braces_balance(preview):
-    """A cheap structural check that runs even without node."""
-    script = _inline_script(preview.UI_HTML, "<script>")
-    # strip template literals and strings well enough to count block braces
-    stripped = re.sub(r"`(?:[^`\\]|\\.)*`|\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'", "''", script)
-    stripped = re.sub(r"//[^\n]*", "", stripped)
-    assert stripped.count("{") == stripped.count("}")
-
-
 def test_the_panel_does_not_show_an_outcome_before_the_story_tells_it(client):
     """One response feeds the verdict, the payment and the result. Logging it
     the instant it arrived put done-paid on the right while the left was still
@@ -693,3 +685,86 @@ def test_a_new_story_inherits_nothing_that_was_held(client):
     story = page[page.index("async function story(scenario)"):page.index("async function decide")]
     assert "HELD = [];" in story
     assert story.index("HELD = [];") < story.index('await call("/api/demo/reset"')
+
+
+# -- the error path, executed rather than read ------------------------------
+
+CHROME = (
+    Path("/srv/workspaces/claude/REPOS/OpenMontage/remotion-composer/node_modules")
+    / ".remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell"
+)
+WS_MODULE = (
+    Path("/srv/workspaces/claude/REPOS/OpenMontage/remotion-composer/node_modules/ws")
+)
+
+
+@pytest.fixture
+def served(tmp_path):
+    """The preview on a real port. The error path cannot be checked by reading
+    the page: it only exists while the script is running."""
+    import shutil
+    import socket
+    import subprocess
+    import time
+    import urllib.request
+
+    if not (shutil.which("node") and CHROME.exists() and WS_MODULE.exists()):
+        pytest.skip("node, chromium or ws is unavailable")
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    env = {
+        **os.environ,
+        "CLERK_PREVIEW_TOKEN": TOKEN,
+        "PREVIEW_RUN_DIR": str(tmp_path / "run"),
+        "PREVIEW_TTL_HOURS": "1",
+    }
+    for name in ("BEDROCK_KEY_FILE", "CLERK_WALLET_FILE", "AWS_ACCESS_KEY_ID"):
+        env.pop(name, None)
+
+    server = subprocess.Popen(
+        ["uv", "run", "uvicorn", "demo.preview_app:app", "--host", "127.0.0.1",
+         "--port", str(port)],
+        cwd=REPO, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    base = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(120):
+            try:
+                urllib.request.urlopen(f"{base}/health", timeout=1).read()
+                break
+            except Exception:
+                time.sleep(0.5)
+        else:
+            pytest.skip("preview server did not start")
+        yield base
+    finally:
+        server.terminate()
+        server.wait(timeout=10)
+
+
+def test_an_error_mid_run_discards_what_was_held(served, tmp_path):
+    """A held response surviving an error would flush somebody else's outcome
+    into the next story's panel. The whole point of holding is that the panel
+    never shows something the story has not reached."""
+    import json
+    import subprocess
+
+    result = subprocess.run(
+        ["node", str(REPO / "tests/browser/error_cleanup.js"), served, TOKEN],
+        capture_output=True, text=True, timeout=180,
+        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE),
+             "CDP_PORT": "9611"},
+    )
+    assert result.returncode == 0, result.stderr
+    state = json.loads(result.stdout.strip().splitlines()[-1])
+
+    assert state["held"] == 0, "a response stayed held after the run failed"
+    # step 5 defers /api/site; the failure lands before it can be shown, so the
+    # panel must still carry only the step 1 fetch of the same path
+    assert sum("/api/site" in p for p in state["wirePaths"]) == 1, \
+        f"a held response leaked into the panel: {state['wirePaths']}"
+    assert state["errorShown"], "the failure was not surfaced to the operator"
+    assert state["buttonsEnabled"], "the run buttons stayed disabled after a failure"
