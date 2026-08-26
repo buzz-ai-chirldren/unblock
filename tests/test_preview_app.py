@@ -664,8 +664,30 @@ def test_the_panel_does_not_show_an_outcome_before_the_story_tells_it(client):
     story = page[page.index("async function story(scenario)"):page.index("async function decide")]
     assert story.index("flushWire();") > story.index('await pace(BEAT);\n  card.querySelector')
 
+    # the rejected path carries done-free in that same response, so step 5's
+    # own requests are held too and everything lands as step 5 is drawn
+    paid = page[page.index("async function paid("):]
+    assert 'await call("/api/site", {}, true)' in paid
+    assert 'await call("/api/pr", {}, true)' in paid
+    assert paid.index("flushWire();   // run (if still held)") < paid.index('step(5, "good"')
+
 
 def test_a_held_entry_keeps_the_step_it_was_made_at(client):
     page = client.get("/", headers=auth()).text
     assert "function logWire(verb, path, status, body, atStep = STEP)" in page
     assert '${atStep || "·"}' in page
+
+
+def test_held_entries_drain_in_arrival_order(client):
+    """Holding an entry back must not reorder the record."""
+    page = client.get("/", headers=auth()).text
+    assert "let HELD = [];" in page
+    assert "HELD.push(entry)" in page
+    assert "for (const entry of queued) logWire(...entry);" in page
+
+
+def test_a_new_story_inherits_nothing_that_was_held(client):
+    page = client.get("/", headers=auth()).text
+    story = page[page.index("async function story(scenario)"):page.index("async function decide")]
+    assert "HELD = [];" in story
+    assert story.index("HELD = [];") < story.index('await call("/api/demo/reset"')

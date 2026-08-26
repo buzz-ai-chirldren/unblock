@@ -788,7 +788,7 @@ const j = (r) => r.json();
 // Every request the page makes goes through here, so the side panel is a
 // record of what actually moved rather than a hand-written illustration of it.
 let STEP = 0;
-let HELD = null;
+let HELD = [];
 
 // `defer` holds the entry back until flushWire(). One response can feed three
 // things on the left (the verdict, the payment, the result), so logging it the
@@ -800,15 +800,15 @@ async function call(path, opts = {}, defer = false) {
   let body = null;
   try { body = await response.clone().json(); } catch { body = "<not json>"; }
   const entry = [opts.method || "GET", path, response.status, body, STEP];
-  if (defer) HELD = entry; else logWire(...entry);
+  if (defer) HELD.push(entry); else logWire(...entry);
   return body;
 }
 
+// Drains in arrival order, so holding an entry back never reorders the record.
 function flushWire() {
-  if (!HELD) return;
-  const held = HELD;
-  HELD = null;
-  logWire(...held);
+  const queued = HELD;
+  HELD = [];
+  for (const entry of queued) logWire(...entry);
 }
 
 function noteFor(path) {
@@ -933,6 +933,7 @@ async function story(scenario){
   for (const id of ["go","go2"]) document.getElementById(id).disabled = true;
   steps().innerHTML = "";
   document.getElementById("wirelog").innerHTML = "";
+  HELD = [];   // a story never inherits anything a previous one held back
   STEP = 0;
   await call("/api/demo/reset", {method:"POST"});
 
@@ -1013,7 +1014,7 @@ async function paid(verdict, beforeBody, price){
   const free = verdict.status === "done-free";
   if (!free && price) {
     await pace(BEAT);
-    flushWire();
+    flushWire();   // the payment reaches the panel as the payment step appears
     // The badge belongs on this side too: the story column is what gets
     // filmed and screenshotted, and a receipt id next to a dollar amount
     // reads as a real payment once it is cropped out of the page.
@@ -1024,17 +1025,20 @@ async function paid(verdict, beforeBody, price){
   }
 
   await pace(BEAT);
-  flushWire();   // no-op if the payment step already showed it
   STEP = 5;
-  const after = await call("/api/site");
+  // Held as well: on the rejected path the run response carries done-free, and
+  // showing that before step 5 is drawn tells the ending early - the same fault
+  // the paid path had, one branch over.
+  const after = await call("/api/site", {}, true);
   const afterIndex = after.find(f => f.path === "index.md").body;
   // The line that actually moved, not the first link on the page: index.md
   // lists two links and only one of them was broken.
   const bLines = beforeBody.split("\n"), aLines = afterIndex.split("\n");
   const at = bLines.findIndex((line, n) => line !== aLines[n]);
   const bLine = (bLines[at] ?? "").trim(), aLine = (aLines[at] ?? "").trim();
-  const prs = await call("/api/pr");
+  const prs = await call("/api/pr", {}, true);
 
+  flushWire();   // run (if still held), site and pr land as step 5 is drawn
   step(5, "good", free ? L.s5t_free : L.s5t, free ? L.s5p_free : L.s5p, `
     <div class="diff">
       <div class="del">− ${esc(bLine)} <span class="dim">${L.before}</span></div>
