@@ -4,3 +4,4 @@ __pycache__/
 .env
 demo/unblock_run/
 demo/reject_run/
+demo/preview_run/

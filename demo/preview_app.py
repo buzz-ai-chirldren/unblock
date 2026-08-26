@@ -34,7 +34,9 @@ from decimal import Decimal
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
@@ -343,6 +345,18 @@ def ui() -> str:
     return UI_HTML
 
 
+PILOT = Path(__file__).resolve().parent / "preview_assets" / "unblock-pilot.mp4"
+
+
+@app.get("/pilot.mp4")
+def pilot():
+    """The 45s pilot cut, served here because the relay refuses the file and a
+    second place to look is a second thing to lose."""
+    if not PILOT.exists():
+        raise HTTPException(status_code=404, detail="no pilot render bundled")
+    return FileResponse(PILOT, media_type="video/mp4")
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots() -> str:
     return "User-agent: *\nDisallow: /\n"
@@ -438,7 +452,14 @@ UI_HTML = """<!doctype html>
     <pre id="challenge">—</pre>
   </div></section>
 
-  <section><h2>5 · evidence</h2><div class="body">
+  <section><h2>5 · the 45s pilot cut</h2><div class="body">
+    <div class="dim">What the filmed version looks like today. Everything in it is
+      real output or a deterministic re-render of it; only the title cards are generated.</div>
+    <video src="/pilot.mp4" controls preload="metadata"
+           style="width:100%;max-width:860px;margin-top:10px;border:1px solid var(--line);border-radius:6px"></video>
+  </div></section>
+
+  <section><h2>6 · evidence</h2><div class="body">
     <div class="row"><button onclick="loadPrs()">PR artifacts</button>
       <button onclick="loadSite()">site files</button></div>
     <pre id="evidence">—</pre>
