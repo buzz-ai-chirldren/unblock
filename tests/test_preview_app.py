@@ -36,9 +36,9 @@ def preview(tmp_path, monkeypatch):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("CLERK_PREVIEW_TOKEN", TOKEN)
     monkeypatch.setenv("PREVIEW_TTL_HOURS", "12")
+    monkeypatch.setenv("PREVIEW_RUN_DIR", str(tmp_path / "preview_run"))
     sys.modules.pop("demo.preview_app", None)
     module = importlib.import_module("demo.preview_app")
-    module.RUN_DIR = tmp_path / "preview_run"
     module._HITS.clear()
     return module
 
@@ -290,3 +290,54 @@ def test_reading_the_ledger_before_any_run_is_fine(client):
     # A human's first move is often to look before touching anything.
     assert client.get("/api/jobs", headers=auth()).json() == []
     assert client.get("/api/pr", headers=auth()).json() == []
+
+
+# -- runtime state never touches the repository -----------------------------
+
+def test_the_default_run_dir_is_outside_the_repo(monkeypatch):
+    monkeypatch.setenv("CLERK_PREVIEW_TOKEN", TOKEN)
+    monkeypatch.delenv("PREVIEW_RUN_DIR", raising=False)
+    sys.modules.pop("demo.preview_app", None)
+    module = importlib.import_module("demo.preview_app")
+    assert REPO not in module.RUN_DIR.parents and module.RUN_DIR != REPO
+
+
+def test_a_run_dir_inside_the_repo_is_refused(monkeypatch):
+    monkeypatch.setenv("CLERK_PREVIEW_TOKEN", TOKEN)
+    monkeypatch.setenv("PREVIEW_RUN_DIR", str(REPO / "demo" / "somewhere"))
+    sys.modules.pop("demo.preview_app", None)
+    with pytest.raises(RuntimeError, match="outside the repository"):
+        importlib.import_module("demo.preview_app")
+
+
+def test_driving_the_whole_demo_does_not_touch_the_repository(client):
+    """The failure this pins: runtime state under the repo meant a run rewrote
+    its own fixture and a reset deleted tracked files.
+
+    It compares `git status --short` before and after rather than asserting the
+    tree is clean, so it holds while the branch is being worked on too -- and
+    an unchanged status is the property that actually matters.
+    """
+    import subprocess
+
+    def status() -> str:
+        result = subprocess.run(
+            ["git", "status", "--short"], cwd=REPO,
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            pytest.skip("not a git checkout")
+        return result.stdout
+
+    before = status()
+
+    for scenario in ("allow", "ask-over-cap", "ask-unknown-merchant"):
+        client.post("/api/demo/reset", headers=auth())
+        client.post("/api/demo/run", params={"scenario": scenario}, headers=auth())
+        client.post(f"/approval/v1/approvals/{JOB}/decision",
+                    json={"action": "REJECT"}, headers=auth())
+        client.post("/api/demo/run", params={"scenario": scenario}, headers=auth())
+        assert status() == before, f"{scenario} changed the repository"
+
+    client.post("/api/demo/reset", headers=auth())
+    assert status() == before, "reset changed the repository"

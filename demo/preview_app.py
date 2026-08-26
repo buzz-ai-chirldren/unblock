@@ -15,7 +15,9 @@ that make a temporary public URL safe:
     URL path is closed after its first redemption and later attempts land on
     /login instead.
   * a hard expiry. After it, every route answers 410 and the server stops.
-  * its own scratch directory and ledger, deleted and rebuilt by /api/demo/reset.
+  * a scratch directory OUTSIDE the repository, deleted and rebuilt by
+    /api/demo/reset. Runtime state under the repo would mean a demo run
+    rewriting its own fixture and a reset deleting tracked files.
   * a per-IP rate limit, tighter on the mutating routes.
 
 Run:
@@ -23,6 +25,8 @@ Run:
 Env:
   CLERK_PREVIEW_TOKEN   required, the owner's bearer token
   PREVIEW_TTL_HOURS     default 12
+  PREVIEW_RUN_DIR       scratch dir, default <tmp>/unblock-preview-run.
+                        Must be outside the repository.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import time
 from collections import defaultdict, deque
 from decimal import Decimal
@@ -90,7 +95,19 @@ TTL_HOURS = float(os.environ.get("PREVIEW_TTL_HOURS", "12"))
 STARTED_AT = time.time()
 EXPIRES_AT = STARTED_AT + TTL_HOURS * 3600
 
-RUN_DIR = REPO / "demo" / "preview_run"
+# Runtime state lives outside the repository, always. The fixture site under
+# fixtures/ is the immutable source; a run copies it here and edits the copy.
+# Keeping the two in one place meant a demo run rewrote its own fixture and a
+# reset deleted tracked files -- found in review, not in tests, because the
+# tests point RUN_DIR at a tmp_path and never saw the production default.
+RUN_DIR = Path(
+    os.environ.get("PREVIEW_RUN_DIR")
+    or Path(tempfile.gettempdir()) / "unblock-preview-run"
+).resolve()
+if RUN_DIR == REPO or REPO in RUN_DIR.parents:
+    raise RuntimeError(
+        f"PREVIEW_RUN_DIR must be outside the repository, got {RUN_DIR}"
+    )
 
 # Same policy the demo ships with: $0.10 per invoice, $1.00 a week, one
 # allowlisted merchant. Anything outside it parks for a human.
@@ -281,7 +298,7 @@ def reset() -> dict:
     if RUN_DIR.exists():
         shutil.rmtree(RUN_DIR)
     _site()
-    return {"reset": True, "run_dir": "demo/preview_run"}
+    return {"reset": True, "run_dir": str(RUN_DIR)}
 
 
 @app.post("/api/demo/run")
