@@ -1004,7 +1004,10 @@ async function runStory(scenario){
   await pace(BEAT);
   card.querySelector("div:last-child").appendChild(
     el(`<div class="verdict ${parked ? "ask" : "pay"}">${parked ? L.v_ask : L.v_pay}</div>`));
-  flushWire();   // the response reaches the panel as the verdict it produced appears
+  // NOT flushed here. The verdict is drawn from this response, but the same
+  // response also carries the outcome - flushing it now puts done-paid in the
+  // panel while the story is still on step 3. It goes out with step 4, which
+  // is the step that announces what the outcome was.
   STEP = 4;
   await pace(BEAT);
 
@@ -1016,6 +1019,7 @@ async function runStory(scenario){
         <button class="approve" onclick="decide('APPROVE')">${L.approve}</button>
         <button class="reject" onclick="decide('REJECT')">${L.reject}</button>
       </div>`);
+    flushWire();   // waiting-approval lands with the step that asks
     return;   // nothing further is generated until a human chooses
   }
   await paid(verdict, index.body, price);

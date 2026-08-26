@@ -768,3 +768,34 @@ def test_an_error_mid_run_discards_what_was_held(served, tmp_path):
         f"a held response leaked into the panel: {state['wirePaths']}"
     assert state["errorShown"], "the failure was not surfaced to the operator"
     assert state["buttonsEnabled"], "the run buttons stayed disabled after a failure"
+
+
+@pytest.mark.parametrize("button,reject", [("go", False), ("go2", True)])
+def test_the_panel_never_runs_ahead_of_the_story(served, button, reject):
+    """UI Gate item 4, run rather than eyeballed.
+
+    The fault this catches was fixed once on the paid path and left standing on
+    the rejected one, because the fix was written where the symptom had been
+    seen instead of where the responses are read. A frame-by-frame invariant
+    does not care which branch it is looking at.
+    """
+    import json
+    import subprocess
+
+    command = ["node", str(REPO / "tests/browser/lead_invariant.js"), served, TOKEN, button]
+    if reject:
+        command.append("reject")
+
+    result = subprocess.run(
+        command, capture_output=True, text=True, timeout=240,
+        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE),
+             "CDP_PORT": "9612"},
+    )
+    assert result.returncode != 2, result.stderr
+    state = json.loads(result.stdout.strip().splitlines()[-1])
+
+    assert not state["ahead"], (
+        f"the panel ran ahead of the story: {state['ahead'][:3]} "
+        f"(transitions {state['transitions']})"
+    )
+    assert state["reachedEnd"], f"the story did not finish: {state['transitions']}"
