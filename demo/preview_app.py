@@ -974,7 +974,10 @@ async function story(scenario){
     await pace(HALF);
   }
 
-  STEP = 4;
+  // Tagged 3, not 4: this response is read first by step 3's verdict. The tag
+  // is what the "panel never runs ahead of the story" check compares against,
+  // so it has to name the step the data is actually used by.
+  STEP = 3;
   const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"}, true);
   const verdict = run.verdicts[0];
   const parked = verdict.status === "waiting-approval";
@@ -984,6 +987,7 @@ async function story(scenario){
   card.querySelector("div:last-child").appendChild(
     el(`<div class="verdict ${parked ? "ask" : "pay"}">${parked ? L.v_ask : L.v_pay}</div>`));
   flushWire();   // the response reaches the panel as the verdict it produced appears
+  STEP = 4;
   await pace(BEAT);
 
   if (parked) {
@@ -1014,7 +1018,6 @@ async function paid(verdict, beforeBody, price){
   const free = verdict.status === "done-free";
   if (!free && price) {
     await pace(BEAT);
-    flushWire();   // the payment reaches the panel as the payment step appears
     // The badge belongs on this side too: the story column is what gets
     // filmed and screenshotted, and a receipt id next to a dollar amount
     // reads as a real payment once it is cropped out of the page.
@@ -1022,6 +1025,7 @@ async function paid(verdict, beforeBody, price){
       `<div class="fact"><span class="mono">${esc(verdict.receipt?.tx || "")}</span> ·
         $${verdict.receipt?.amount || price} ${esc(verdict.receipt?.currency || "USDC")}
         <span class="badge mock" style="margin-left:6px">${esc(L.v_notbroadcast)}</span></div>`);
+    flushWire();   // same tick as the step it belongs to
   }
 
   await pace(BEAT);
@@ -1038,7 +1042,6 @@ async function paid(verdict, beforeBody, price){
   const bLine = (bLines[at] ?? "").trim(), aLine = (aLines[at] ?? "").trim();
   const prs = await call("/api/pr", {}, true);
 
-  flushWire();   // run (if still held), site and pr land as step 5 is drawn
   step(5, "good", free ? L.s5t_free : L.s5t, free ? L.s5p_free : L.s5p, `
     <div class="diff">
       <div class="del">− ${esc(bLine)} <span class="dim">${L.before}</span></div>
@@ -1051,6 +1054,7 @@ async function paid(verdict, beforeBody, price){
       <div class="cell"><div class="k">${L.k_pr}</div><div class="v mono" style="font-size:13px">${
         esc(prs[0]?.name || "—")}</div></div>
     </div>`);
+  flushWire();   // run (if still held), site and pr, in the same tick as step 5
   document.getElementById("again").style.display = "inline-block";
 }
 

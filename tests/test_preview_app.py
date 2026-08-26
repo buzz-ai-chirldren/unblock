@@ -669,7 +669,9 @@ def test_the_panel_does_not_show_an_outcome_before_the_story_tells_it(client):
     paid = page[page.index("async function paid("):]
     assert 'await call("/api/site", {}, true)' in paid
     assert 'await call("/api/pr", {}, true)' in paid
-    assert paid.index("flushWire();   // run (if still held)") < paid.index('step(5, "good"')
+    # the left element is drawn first and the flush follows in the same tick,
+    # so no frame can catch the panel ahead of the story
+    assert paid.index('step(5, "good"') < paid.index("flushWire();   // run (if still held)")
 
 
 def test_a_held_entry_keeps_the_step_it_was_made_at(client):
