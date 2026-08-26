@@ -524,6 +524,31 @@ UI_HTML = r"""<!doctype html>
   .w-code.no { background:#3a1414; color:var(--bad); }
   .w-entry pre { margin:8px 0 0; max-height:230px; font-size:11.5px; }
   .w-note { margin:8px 0 0; font-size:12px; color:var(--warn); line-height:1.55; }
+  .w-kv { margin:9px 0 0; display:grid; grid-template-columns:auto 1fr; gap:3px 10px;
+          font-size:12px; }
+  .w-kv dt { color:var(--dim); white-space:nowrap; }
+  .w-kv dd { margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+             word-break:break-all; }
+  .w-entry details { margin:9px 0 0; border:none; padding:0; }
+  .w-entry summary { font-size:12px; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:11px;
+           font-weight:700; letter-spacing:.03em; }
+  .badge.mock { background:#3a2d09; color:var(--warn); border:1px solid #9e7615; }
+  .badge.live { background:#12321c; color:var(--ok); border:1px solid #2ea043; }
+  .w-entry.current { background:#11161d; box-shadow:inset 3px 0 0 var(--accent); }
+  .evidence { border-top:1px solid var(--line); padding:13px 14px; }
+  .evidence h3 { margin:0 0 7px; font-size:12px; color:var(--dim);
+                 text-transform:uppercase; letter-spacing:.08em; }
+  .evidence a { color:var(--accent); }
+  #wiretoggle { display:none; }
+  @media (max-width:1180px){
+    #wiretoggle { display:block; position:fixed; right:14px; bottom:14px; z-index:20;
+                  box-shadow:0 4px 14px rgba(0,0,0,.5); }
+    .wire { position:fixed; left:0; right:0; bottom:0; z-index:19; max-height:74vh;
+            border-radius:12px 12px 0 0; transform:translateY(101%);
+            transition:transform .22s ease; }
+    .wire.open { transform:none; }
+  }
   h1 { font-size:26px; line-height:1.45; margin:0 0 14px; }
   .lede { font-size:16px; color:var(--dim); margin:0 0 26px; }
   button { background:#21262d; color:var(--fg); border:1px solid var(--line);
@@ -637,7 +662,20 @@ UI_HTML = r"""<!doctype html>
    <h2 data-i="w_head"></h2>
    <p class="hint" id="wirehint" data-i="w_empty"></p>
    <div id="wirelog"></div>
+   <div class="evidence">
+     <h3 data-i="e_head"></h3>
+     <dl class="w-kv">
+       <dt data-i="e_rail_k"></dt><dd>x402 · Base Sepolia</dd>
+       <dt data-i="e_settle_k"></dt><dd><span class="badge live">CONFIRMED</span></dd>
+       <dt data-i="e_tx_k"></dt>
+       <dd><a href="https://sepolia.basescan.org/tx/0x64a0a2d15d9dd4e33c419c0af1289acf30b0eea074630ab177e9760bff430834"
+              target="_blank" rel="noreferrer">0x64a0a2d1…bff430834</a></dd>
+     </dl>
+     <p class="w-note" style="color:var(--dim)" data-i="e_note"></p>
+   </div>
  </aside>
+ <button id="wiretoggle" onclick="document.querySelector('.wire').classList.toggle('open')"
+         data-i="w_toggle"></button>
 </main>
 <script>
 const JA = {
@@ -669,6 +707,16 @@ const JA = {
   w_empty:"ボタンを押すと、各ステップで送受信された中身がここに順番に出ます。",
   w_402:"これは請求書であって、支払いではありません。x402では、この条件を見たクライアントが X-PAYMENT 署名を付けて再送し、そこで facilitator が on-chain の settle を行います。このpreviewはmock railなのでそこまで進みません。payTo が 0x…dEaD（burn address）、URLが testserver なのは、プロセス内で条件だけを取り出しているからで、ここからは1円も動かせません。",
   w_decide:"人間の決定はここで記録されます。state:FAILED は「支払いを許可しなかった」という意味で、仕事の失敗ではありません。次のrunが無料の代替で完了させます。",
+  w_toggle:"データを見る",
+  k_amount:"金額", k_network:"ネットワーク", k_asset:"通貨", k_payto:"支払先",
+  k_merchant:"相手", k_settle:"決済", k_rail:"経路", k_verdict:"判定",
+  k_job:"ジョブ", k_action:"決定", k_state:"状態", k_files:"ファイル", k_count:"件数",
+  v_notbroadcast:"NOT BROADCAST", v_inproc:"in-process merchant（公開URLではありません）",
+  v_burn:"burn address（ここへは1円も動きません）",
+  raw:"生JSON",
+  e_head:"過去のlive実証（この実行とは別）",
+  e_rail_k:"経路", e_settle_k:"決済", e_tx_k:"tx",
+  e_note:"これはGate Cで実際にBase Sepoliaへ決済した記録です。上のログはmock railの今回の実行で、資金は動いていません。混同しないよう分けて表示しています。",
   running:"実行中…",
 };
 const EN = {
@@ -700,6 +748,16 @@ const EN = {
   w_empty:"Press a button and every request and response appears here, in order.",
   w_402:"This is an invoice, not a payment. In x402 the client retries with a signed X-PAYMENT header and the facilitator settles on-chain at that point. This preview runs on the mock rail and never gets there. payTo is 0x…dEaD (the burn address) and the URL says testserver because the terms are pulled in-process - nothing here can move a cent.",
   w_decide:"The human decision is recorded here. state:FAILED means the purchase was not authorised, not that the job failed - the next run finishes it from a free source.",
+  w_toggle:"Show data",
+  k_amount:"Amount", k_network:"Network", k_asset:"Asset", k_payto:"Pay to",
+  k_merchant:"Merchant", k_settle:"Settlement", k_rail:"Rail", k_verdict:"Verdict",
+  k_job:"Job", k_action:"Decision", k_state:"State", k_files:"Files", k_count:"Count",
+  v_notbroadcast:"NOT BROADCAST", v_inproc:"in-process merchant (not a public URL)",
+  v_burn:"burn address (nothing can reach it)",
+  raw:"raw JSON",
+  e_head:"verified live run (a different run)",
+  e_rail_k:"Rail", e_settle_k:"Settlement", e_tx_k:"tx",
+  e_note:"A real Base Sepolia settlement from Gate C. The log above is this run, on the mock rail, where no money moved. They are kept apart on purpose.",
   running:"running…",
 };
 let L = localStorage.getItem("lang") === "en" ? EN : JA;
@@ -722,20 +780,63 @@ function noteFor(path) {
   return "";
 }
 
+// The fields worth reading first, per endpoint. Anything not summarised here
+// still shows its full JSON below - the summary is a lens, never a filter.
+function summarise(path, body) {
+  const kv = [];
+  const badge = (cls, text) => `<span class="badge ${cls}">${text}</span>`;
+
+  if (path.startsWith("/api/merchant/challenge") && body?.payment_required) {
+    const t = body.payment_required.accepts?.[0] || {};
+    // USDC carries 6 decimals; show both so the raw number is not a mystery.
+    const human = t.amount ? (Number(t.amount) / 1e6).toFixed(2) : "?";
+    kv.push([L.k_amount, `$${human} USDC <span class="dim">(${esc(t.amount)} atomic, 6 dp)</span>`]);
+    kv.push([L.k_network, `Base Sepolia <span class="dim">(${esc(t.network || "")})</span>`]);
+    kv.push([L.k_asset, esc(t.asset || "")]);
+    kv.push([L.k_payto, `${esc(t.payTo || "")} <span class="dim">${L.v_burn}</span>`]);
+    kv.push([L.k_merchant, L.v_inproc]);
+    kv.push([L.k_settle, badge("mock", L.v_notbroadcast)]);
+  } else if (path.startsWith("/api/demo/run") && body?.verdicts) {
+    const v = body.verdicts[0];
+    if (!v) return "";
+    kv.push([L.k_verdict, esc(v.status)]);
+    kv.push([L.k_job, esc(v.job_id || "")]);
+    kv.push([L.k_rail, `MOCK`]);
+    if (v.receipt) kv.push([L.k_amount, `$${esc(v.receipt.amount)} ${esc(v.receipt.currency)}`]);
+    kv.push([L.k_settle, badge("mock", L.v_notbroadcast)]);
+  } else if (path.includes("/decision")) {
+    kv.push([L.k_action, esc(body?.action_in_effect || "")]);
+    kv.push([L.k_state, esc(body?.state || "")]);
+    kv.push([L.k_settle, badge("mock", L.v_notbroadcast)]);
+  } else if (Array.isArray(body)) {
+    kv.push([L.k_count, String(body.length)]);
+    if (body[0]?.path) kv.push([L.k_files, body.map(f => esc(f.path)).join(", ")]);
+  }
+
+  if (!kv.length) return "";
+  return `<dl class="w-kv">${kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+}
+
 function logWire(verb, path, status, body) {
   document.getElementById("wirehint").style.display = "none";
   const note = noteFor(path);
-  const entry = el(`<div class="w-entry">
+  const entry = el(`<div class="w-entry current">
       <div class="w-top">
         <span class="w-step">${STEP || "·"}</span>
         <span class="w-verb">${esc(verb)}</span>
         <span class="w-path">${esc(path)}</span>
         <span class="w-code ${status < 400 ? "ok" : "no"}">${status}</span>
       </div>
-      <pre>${esc(JSON.stringify(body, null, 1))}</pre>
+      ${summarise(path, body)}
       ${note ? `<p class="w-note">${esc(note)}</p>` : ""}
+      <details><summary>${esc(L.raw)}</summary>
+        <pre>${esc(JSON.stringify(body, null, 1))}</pre></details>
     </div>`);
   const log = document.getElementById("wirelog");
+  // Only the newest entry is highlighted: the panel follows the story rather
+  // than leaving the reader to find their place in it.
+  for (const previous of log.querySelectorAll(".w-entry.current"))
+    previous.classList.remove("current");
   log.appendChild(entry);
   entry.scrollIntoView({behavior: "smooth", block: "nearest"});
 }

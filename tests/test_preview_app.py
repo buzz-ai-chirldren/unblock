@@ -505,3 +505,36 @@ def test_rejection_is_explained_as_a_decision_not_a_failure(client):
     page = client.get("/", headers=auth()).text
     assert "仕事の失敗ではありません" in page
     assert "not that the job failed" in page
+
+
+def test_the_panel_leads_with_readable_fields_then_the_raw_json(client):
+    page = client.get("/", headers=auth()).text
+    assert "function summarise(" in page
+    assert '<details><summary>' in page and 'JSON.stringify(body, null, 1)' in page
+    for label in ("k_amount", "k_network", "k_asset", "k_payto", "k_settle"):
+        assert f"{label}:" in page
+
+
+def test_mock_and_live_settlement_are_never_shown_as_the_same_thing(client):
+    """A demo that lets a mock run read as a settled payment is worse than one
+    with no payment at all."""
+    page = client.get("/", headers=auth()).text
+    assert "NOT BROADCAST" in page
+    assert "CONFIRMED" in page
+    assert "0x64a0a2d15d9dd4e33c419c0af1289acf30b0eea074630ab177e9760bff430834" in page
+    assert "sepolia.basescan.org" in page
+    # the live tx is labelled as a different run, not this one
+    assert "この実行とは別" in page and "a different run" in page
+
+
+def test_the_in_process_merchant_is_not_passed_off_as_a_public_url(client):
+    page = client.get("/", headers=auth()).text
+    assert "公開URLではありません" in page and "not a public URL" in page
+    assert "burn address" in page
+
+
+def test_the_panel_is_reachable_on_a_narrow_screen(client):
+    page = client.get("/", headers=auth()).text
+    assert 'id="wiretoggle"' in page
+    assert "@media (max-width:1180px)" in page
+    assert ".wire.open" in page
