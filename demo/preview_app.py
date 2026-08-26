@@ -213,12 +213,22 @@ app.mount("/approval", approval)
 # merchant is exercised in-process against its own root path and only its
 # CHALLENGE is exposed. There is no reachable paid endpoint on this preview.
 os.environ.setdefault("MERCHANT_ADDRESS", "0x000000000000000000000000000000000000dEaD")
+
+# One merchant per scenario price. The story tells the reader what the intel
+# costs; the panel beside it shows the merchant's own 402. If those two numbers
+# disagree, the panel stops being evidence and starts being decoration -- which
+# is exactly what happened when the challenge was hard-wired to $0.05 while the
+# expensive path narrated $0.50.
+_MERCHANTS: dict[str, object] = {}
 try:
+    import importlib
+
     from fastapi.testclient import TestClient  # noqa: E402
 
-    from demo.merchant import app as _merchant_app  # noqa: E402
-
-    _merchant = TestClient(_merchant_app, raise_server_exceptions=False)
+    for _price in ("0.05", "0.50"):
+        os.environ["MERCHANT_PRICE"] = f"${_price}"
+        _module = importlib.reload(importlib.import_module("demo.merchant"))
+        _MERCHANTS[_price] = TestClient(_module.app, raise_server_exceptions=False)
     MERCHANT_AVAILABLE = True
 except Exception:  # pragma: no cover - the preview is still useful without it
     MERCHANT_AVAILABLE = False
@@ -350,7 +360,7 @@ def run(scenario: str = "allow") -> dict:
 
 
 @app.get("/api/merchant/challenge")
-def merchant_challenge(broken_url: str = "guides/install.md") -> dict:
+def merchant_challenge(broken_url: str = "guides/install.md", price: str = "0.05") -> dict:
     """What the real merchant answers before any payment is made.
 
     Returns the status, the body, and the decoded x402 terms. The paid record
@@ -359,7 +369,10 @@ def merchant_challenge(broken_url: str = "guides/install.md") -> dict:
     """
     if not MERCHANT_AVAILABLE:
         raise HTTPException(status_code=503, detail="merchant not available")
-    response = _merchant.get("/intel", params={"broken_url": broken_url})
+    merchant = _MERCHANTS.get(price)
+    if merchant is None:
+        raise HTTPException(status_code=400, detail=f"no merchant priced at {price!r}")
+    response = merchant.get("/intel", params={"broken_url": broken_url})
     header = response.headers.get("payment-required")
     terms = None
     if header:
@@ -894,10 +907,11 @@ async function story(scenario){
   step(1, "", L.s1t, L.s1p,
     `<div class="fact">index.md → <span class="mono">${esc(broken)}</span> ✕</div>`);
 
-  STEP = 2;
-  const ch = await call("/api/merchant/challenge");
-  const opt = ch.payment_required?.accepts?.[0];
   const price = scenario === "allow" ? "0.05" : "0.50";
+  STEP = 2;
+  // Ask the merchant for the terms at the price this run is about to narrate,
+  // so the story and the wire log cannot disagree about what it costs.
+  const ch = await call(`/api/merchant/challenge?price=${price}`);
   step(2, "", L.s2t, L.s2p,
     `<div class="fact">HTTP <span class="mono">402 Payment Required</span> ·
       ${L.k_price}: <span class="mono">$${price} USDC</span> ·

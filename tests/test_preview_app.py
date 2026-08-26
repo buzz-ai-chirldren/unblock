@@ -538,3 +538,25 @@ def test_the_panel_is_reachable_on_a_narrow_screen(client):
     assert 'id="wiretoggle"' in page
     assert "@media (max-width:1180px)" in page
     assert ".wire.open" in page
+
+
+def test_the_challenge_price_matches_the_price_the_story_narrates(client):
+    """Side by side, the story said $0.50 while the merchant's own 402 said
+    $0.05. A panel that contradicts the story it sits next to is worse than
+    no panel."""
+    cheap = client.get("/api/merchant/challenge", params={"price": "0.05"},
+                       headers=auth()).json()
+    dear = client.get("/api/merchant/challenge", params={"price": "0.50"},
+                      headers=auth()).json()
+    assert cheap["payment_required"]["accepts"][0]["amount"] == "50000"
+    assert dear["payment_required"]["accepts"][0]["amount"] == "500000"
+
+
+def test_an_unpriced_merchant_is_refused_rather_than_guessed(client):
+    assert client.get("/api/merchant/challenge", params={"price": "9.99"},
+                      headers=auth()).status_code == 400
+
+
+def test_the_story_requests_the_challenge_at_its_own_price(client):
+    page = client.get("/", headers=auth()).text
+    assert "/api/merchant/challenge?price=${price}" in page
