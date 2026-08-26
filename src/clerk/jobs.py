@@ -78,13 +78,19 @@ class Clerk:
 
         return self._pay_and_finish(job_id, invoice, work)
 
+    def decide(self, invoice: Invoice, action: str, actor: str, note: str = "") -> tuple[bool, str]:
+        """Record the terminal decision atomically. Returns (created,
+        effective_action) - the stored action, which under a race may differ
+        from the one requested. Callers must act on effective_action only."""
+        return self.ledger.record_decision(invoice, action, actor, note)
+
     def approve(self, invoice: Invoice, actor: str, note: str = "") -> bool:
         """Record the terminal APPROVED decision; any later call is a no-op (False)."""
-        return self.ledger.record_decision(invoice, "APPROVED", actor, note)
+        return self.decide(invoice, "APPROVED", actor, note)[0]
 
     def reject(self, invoice: Invoice, actor: str, note: str = "") -> bool:
         """Record the terminal REJECTED decision; any later call is a no-op (False)."""
-        return self.ledger.record_decision(invoice, "REJECTED", actor, note)
+        return self.decide(invoice, "REJECTED", actor, note)[0]
 
     def resume(self, job_id: str) -> str:
         """Re-drive a WAITING_APPROVAL job after (or without) a decision."""

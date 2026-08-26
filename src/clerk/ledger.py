@@ -28,6 +28,7 @@ invoice_id.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from decimal import Decimal
@@ -91,8 +92,18 @@ class Ledger:
     def __init__(self, path: str | Path):
         self.conn = sqlite3.connect(str(path), timeout=10)
         self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+        # The ledger is the evidence store: keep it owner-only. SQLite copies
+        # the main file's mode onto -wal/-shm sidecars it creates afterwards.
+        try:
+            os.chmod(str(path), 0o600)
+        except OSError:
+            pass  # e.g. ":memory:" or a filesystem without chmod
+
+    def integrity_ok(self) -> bool:
+        return self.conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
     def close(self) -> None:
         self.conn.close()
@@ -179,9 +190,12 @@ class Ledger:
 
     # -- approvals ---------------------------------------------------------
 
-    def record_decision(self, inv: Invoice, action: str, actor: str, note: str = "") -> bool:
-        """Terminal and idempotent: the first decision per (merchant, invoice_id)
-        wins; any later insert - same action or conflicting - is a no-op (False).
+    def record_decision(self, inv: Invoice, action: str, actor: str, note: str = "") -> tuple[bool, str]:
+        """Terminal, atomic, race-safe. Returns (created, effective_action):
+        created is True only for the single INSERT that won the (merchant,
+        invoice_id) primary key; every loser - same action or conflicting -
+        gets created=False plus the action that is actually stored. Callers
+        MUST branch on effective_action, never on what they asked for.
         The decision is bound to the invoice digest at decision time."""
         try:
             self.conn.execute(
@@ -190,9 +204,11 @@ class Ledger:
                 (inv.merchant, inv.invoice_id, action, actor, note, inv.digest(), time.time()),
             )
             self.conn.commit()
-            return True
+            return True, action
         except sqlite3.IntegrityError:
-            return False
+            stored = self.decision(inv)
+            assert stored is not None  # the PK conflict proves the row exists
+            return False, stored[0]
 
     def decision(self, inv: Invoice) -> tuple[str, str] | None:
         """Returns (action, invoice_digest) of the terminal decision, or None."""
@@ -237,8 +253,12 @@ class Ledger:
             "merchant": row[3], "invoice_id": row[4], "result": row[5],
         }
 
-    def waiting_jobs(self) -> list[dict]:
-        rows = self.conn.execute("SELECT job_id FROM jobs WHERE state='WAITING_APPROVAL'").fetchall()
+    def waiting_jobs(self, limit: int = 50, offset: int = 0) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT job_id FROM jobs WHERE state='WAITING_APPROVAL'"
+            " ORDER BY created_at, job_id LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
         return [self.job(r[0]) for r in rows]
 
     # -- API evidence events -------------------------------------------------
