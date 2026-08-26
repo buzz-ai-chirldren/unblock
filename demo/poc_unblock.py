@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from decimal import Decimal
@@ -48,14 +49,29 @@ trace_mode = configure_tracing()
 if trace_mode != "off":
     print(f"[tracing: {trace_mode}]")
 
+if os.environ.get("UNBLOCK_TRACE_IDS"):
+    # Print each job's trace id (ids only - safe) so a live-export run can be
+    # located in the tracing backend. Works with any SDK provider, including
+    # ADOT auto-instrumentation.
+    from opentelemetry import trace as _trace
+    from opentelemetry.sdk.trace import SpanProcessor
+
+    class _PrintJobTraceId(SpanProcessor):
+        def on_end(self, span):
+            if span.name == "unblock.job":
+                print(f"[trace_id: {format(span.context.trace_id, '032x')} "
+                      f"span_id: {format(span.context.span_id, '016x')}]")
+
+    provider = _trace.get_tracer_provider()
+    if hasattr(provider, "add_span_processor"):
+        provider.add_span_processor(_PrintJobTraceId())
+
 RUN_DIR.mkdir(parents=True, exist_ok=True)
 site = RUN_DIR / "site"
 if not site.exists():
     shutil.copytree(REPO / "fixtures" / "site", site)
 
 if args.rail == "x402":
-    import os
-
     from clerk.x402_rail import X402Rail
 
     wallet = json.load(open(os.environ["CLERK_WALLET_FILE"]))
