@@ -55,33 +55,44 @@ def run_pipeline(tmp_path):
     return incident
 
 
+STAGES = ("detect", "policy", "pay", "fetch", "fix", "verify", "pr")
+
+
 def test_span_map_and_hygiene(tmp_path):
     EXPORTER.clear()
     incident = run_pipeline(tmp_path)
     spans = EXPORTER.get_finished_spans()
-    by_name = {s.name: s for s in spans}
 
-    # The documented span map is present.
-    for name in ("unblock.job", "detect", "policy", "pay", "fetch", "fix", "verify", "pr"):
-        assert name in by_name, f"missing span {name}"
-
-    # One trace, rooted at the job span, which carries the job id.
-    job = by_name["unblock.job"]
+    # Exactly one job root, carrying the job id and outcome.
+    (job,) = [s for s in spans if s.name == "unblock.job"]
     assert job.parent is None
     assert job.attributes["unblock.job_id"] == incident.job_id
     assert job.attributes["unblock.status"] == "done-paid"
-    in_trace = [s for s in spans if s.context.trace_id == job.context.trace_id]
-    for name in ("policy", "pay", "fetch", "fix", "verify", "pr"):
-        assert by_name[name].context.trace_id == job.context.trace_id
+
+    # The job trace contains each of the 7 stages exactly once, every one a
+    # DIRECT child of the job root - including detect.
+    stage_spans = [s for s in spans
+                   if s.context.trace_id == job.context.trace_id and s is not job]
+    assert sorted(s.name for s in stage_spans) == sorted(STAGES)
+    for s in stage_spans:
+        assert s.parent.span_id == job.context.span_id, f"{s.name} not rooted at job"
 
     # Stage outcomes are recorded.
+    by_name = {s.name: s for s in stage_spans}
+    assert by_name["detect"].attributes["unblock.still_broken"] is True
     assert by_name["policy"].attributes["clerk.decision"] == "ALLOW"
     assert by_name["pay"].attributes["clerk.rail"] == "mock"
     assert by_name["fetch"].attributes["unblock.intel_valid"] is True
     assert by_name["verify"].attributes["unblock.resolved"] is True
 
+    # The standalone scan is its own trace, never mixed into the job trace.
+    scans = [s for s in spans if s.name == "scan"]
+    assert scans
+    for s in scans:
+        assert s.context.trace_id != job.context.trace_id
+
     # Hygiene: no attribute anywhere carries the paid body or the intel JSON.
-    for s in in_trace:
+    for s in spans:
         for value in (s.attributes or {}).values():
             assert "suggested_replacement" not in str(value)
             assert "observed_at" not in str(value)

@@ -89,20 +89,29 @@ class IntelOffer:
     url: str = ""
 
 
+def _detect_raw(site_dir: Path) -> list[Incident]:
+    """The link check itself, span-free so callers control trace placement."""
+    site_dir = site_dir.resolve()
+    incidents = []
+    for md in sorted(site_dir.rglob("*.md")):
+        rel = str(md.relative_to(site_dir))
+        for target in _LINK.findall(md.read_text()):
+            if "://" in target or target.startswith("mailto:"):
+                continue
+            resolved = (md.parent / target).resolve()
+            if not resolved.is_relative_to(site_dir) or not resolved.exists():
+                incidents.append(Incident(file=rel, link=target))
+    return incidents
+
+
 def detect(site_dir: Path) -> list[Incident]:
     """Deterministic link check: every relative markdown link must resolve to
-    an existing file INSIDE the site. External schemes are out of scope."""
-    site_dir = site_dir.resolve()
-    with _tracer.start_as_current_span("detect") as span:
-        incidents = []
-        for md in sorted(site_dir.rglob("*.md")):
-            rel = str(md.relative_to(site_dir))
-            for target in _LINK.findall(md.read_text()):
-                if "://" in target or target.startswith("mailto:"):
-                    continue
-                resolved = (md.parent / target).resolve()
-                if not resolved.is_relative_to(site_dir) or not resolved.exists():
-                    incidents.append(Incident(file=rel, link=target))
+    an existing file INSIDE the site. External schemes are out of scope.
+
+    Standalone scans trace as `scan` (their own trace); the per-job `detect`
+    span lives inside Unblock.run() under the unblock.job root."""
+    with _tracer.start_as_current_span("scan") as span:
+        incidents = _detect_raw(site_dir)
         span.set_attribute("unblock.broken_links", len(incidents))
         return incidents
 
@@ -149,6 +158,15 @@ class Unblock:
             # allowlisted file. Everything else needs a human, not an agent.
             return {"status": "refused-file", "job_id": incident.job_id,
                     "why": "file is not in the repair allowlist"}
+        with _tracer.start_as_current_span("detect") as span:
+            still_broken = any(i.incident_id == incident.incident_id
+                               for i in _detect_raw(self.site_dir))
+            span.set_attribute("unblock.still_broken", still_broken)
+        if not still_broken:
+            # Also BEFORE any payment: never buy intel about a link that is
+            # no longer broken.
+            return {"status": "already-fixed", "job_id": incident.job_id,
+                    "why": "link is no longer broken; nothing to buy or fix"}
 
         invoice = self._invoice(incident)
         clerk = self.clerk_factory()
@@ -187,7 +205,7 @@ class Unblock:
             return {"status": "failed", "job_id": incident.job_id,
                     "why": "replacement target is unsafe or does not exist"}
         with _tracer.start_as_current_span("verify") as span:
-            remaining = detect(self.site_dir)
+            remaining = _detect_raw(self.site_dir)
             resolved = not any(i.incident_id == incident.incident_id for i in remaining)
             span.set_attribute("unblock.resolved", resolved)
         if not resolved:
