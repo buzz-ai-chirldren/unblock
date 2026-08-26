@@ -48,8 +48,6 @@ POLICY = Policy(
     per_invoice_cap=Decimal("0.10"),
     merchant_allowlist=frozenset({"local-x402-merchant"}),
 )
-clerk = Clerk(Ledger(args.db), POLICY, rail)
-
 
 @tool
 def fetch_paid_resource(invoice_id: str, amount_usdc: str, url: str) -> str:
@@ -71,8 +69,16 @@ def fetch_paid_resource(invoice_id: str, amount_usdc: str, url: str) -> str:
         currency="USDC",
         memo=url,
     )
-    state = clerk.run_job(f"job-{invoice_id}", invoice, work=f"GET {url}")
-    receipt = clerk.ledger.receipt(invoice)
+    # Strands runs tools on a worker thread; SQLite connections are
+    # thread-bound, so build a fresh Ledger/Clerk per call. All state lives
+    # in the on-disk ledger, so fresh connections are safe (see the restart
+    # tests in tests/).
+    clerk = Clerk(Ledger(args.db), POLICY, rail)
+    try:
+        state = clerk.run_job(f"job-{invoice_id}", invoice, work=f"GET {url}")
+        receipt = clerk.ledger.receipt(invoice)
+    finally:
+        clerk.ledger.close()
     return json.dumps({"job_state": state, "receipt": receipt})
 
 
