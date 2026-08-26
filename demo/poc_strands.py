@@ -2,8 +2,13 @@
 tool call. The LLM decides WHEN to fetch the paid resource; whether money moves
 is decided ONLY by the deterministic policy/ledger inside the tool.
 
-  ANTHROPIC_API_KEY=... uv run python demo/poc_strands.py \
-      [--url http://127.0.0.1:8402/premium-data] [--rail mock|x402]
+  BEDROCK_KEY_FILE=... uv run python demo/poc_strands.py \
+      [--url http://127.0.0.1:8402/premium-data] [--rail mock|x402] \
+      [--provider bedrock|anthropic]
+
+Model provider defaults to Bedrock (us-east-1, credentials from
+BEDROCK_KEY_FILE, an IAM access-key JSON). --provider anthropic keeps the
+old path and needs ANTHROPIC_API_KEY.
 
 The tool returns the clerk's verdict verbatim (DONE / WAITING_APPROVAL /
 FAILED); the agent's job is to relay it, not to override it.
@@ -21,7 +26,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from strands import Agent, tool  # noqa: E402
-from strands.models.anthropic import AnthropicModel  # noqa: E402
 
 from clerk.jobs import Clerk  # noqa: E402
 from clerk.ledger import Ledger  # noqa: E402
@@ -32,7 +36,33 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--url", default="http://127.0.0.1:8402/premium-data")
 ap.add_argument("--rail", choices=["mock", "x402"], default="mock")
 ap.add_argument("--db", default="demo/strands_ledger.db")
+ap.add_argument("--provider", choices=["bedrock", "anthropic"], default="bedrock")
+ap.add_argument("--model-id", default=None)
 args = ap.parse_args()
+
+
+def build_model(provider: str, model_id: str | None):
+    if provider == "anthropic":
+        from strands.models.anthropic import AnthropicModel
+
+        return AnthropicModel(model_id=model_id or "claude-opus-5", max_tokens=4096)
+
+    import boto3
+    from strands.models import BedrockModel
+
+    creds = json.load(open(os.environ["BEDROCK_KEY_FILE"]))
+    if "AccessKey" in creds:  # IAM console export wraps the key pair
+        creds = creds["AccessKey"]
+    session = boto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        region_name="us-east-1",
+    )
+    return BedrockModel(
+        model_id=model_id or "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        boto_session=session,
+        max_tokens=4096,
+    )
 
 if args.rail == "x402":
     from clerk.x402_rail import X402Rail
@@ -82,7 +112,7 @@ def fetch_paid_resource(invoice_id: str, amount_usdc: str, url: str) -> str:
     return json.dumps({"job_state": state, "receipt": receipt})
 
 
-model = AnthropicModel(model_id="claude-opus-5", max_tokens=4096)
+model = build_model(args.provider, args.model_id)
 agent = Agent(
     model=model,
     tools=[fetch_paid_resource],
