@@ -1,0 +1,24 @@
+[project]
+name = "allowance-clerk"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "BUZZ AI CHILDREN", email = "yamadaike.coffee@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "strands-agents>=1.53.0",
+    "strands-agents-tools>=0.8.6",
+]
+
+[project.scripts]
+allowance-clerk = "allowance_clerk:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
