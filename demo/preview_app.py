@@ -498,7 +498,32 @@ UI_HTML = r"""<!doctype html>
          font-weight:700; font-size:11px; }
   .spacer { flex:1 }
   .dim { color:var(--dim); }
-  main { padding:28px 20px 60px; max-width:820px; margin:0 auto; }
+  main { padding:24px 20px 60px; max-width:1440px; margin:0 auto; display:grid;
+         grid-template-columns:minmax(0,1fr) 420px; gap:26px; align-items:start; }
+  @media (max-width:1180px){ main { grid-template-columns:minmax(0,1fr); } }
+  .story { min-width:0; }
+  .wire { position:sticky; top:14px; max-height:calc(100vh - 28px); overflow:auto;
+          background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  @media (max-width:1180px){ .wire { position:static; max-height:none; } }
+  .wire > h2 { font-size:12px; margin:0; padding:11px 14px; color:var(--dim);
+               text-transform:uppercase; letter-spacing:.08em;
+               border-bottom:1px solid var(--line); position:sticky; top:0;
+               background:var(--panel); }
+  .wire .hint { padding:14px; color:var(--dim); font-size:13px; margin:0; }
+  .w-entry { border-bottom:1px solid var(--line); padding:11px 14px; }
+  .w-entry:last-child { border-bottom:none; }
+  .w-top { display:flex; gap:7px; align-items:center; flex-wrap:wrap; font-size:12px;
+           font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .w-step { width:19px; height:19px; border-radius:50%; background:#21262d;
+            border:1px solid var(--line); display:grid; place-items:center;
+            font-size:11px; color:var(--dim); flex:none; }
+  .w-verb { color:var(--accent); }
+  .w-path { color:var(--fg); word-break:break-all; flex:1; }
+  .w-code { padding:0 6px; border-radius:3px; font-weight:600; }
+  .w-code.ok { background:#12321c; color:var(--ok); }
+  .w-code.no { background:#3a1414; color:var(--bad); }
+  .w-entry pre { margin:8px 0 0; max-height:230px; font-size:11.5px; }
+  .w-note { margin:8px 0 0; font-size:12px; color:var(--warn); line-height:1.55; }
   h1 { font-size:26px; line-height:1.45; margin:0 0 14px; }
   .lede { font-size:16px; color:var(--dim); margin:0 0 26px; }
   button { background:#21262d; color:var(--fg); border:1px solid var(--line);
@@ -574,6 +599,7 @@ UI_HTML = r"""<!doctype html>
   <span class="dim" id="meta"></span>
 </header>
 <main>
+ <div class="story">
   <h1 data-i="title"></h1>
   <p class="lede" data-i="lede"></p>
   <p class="defn" data-i="defn"></p>
@@ -596,16 +622,22 @@ UI_HTML = r"""<!doctype html>
   <details>
     <summary data-i="dev"></summary>
     <div class="row" style="margin-top:12px">
-      <button onclick="raw('/api/jobs')" data-i="d_jobs"></button>
-      <button onclick="raw('/api/pr')" data-i="d_pr"></button>
-      <button onclick="raw('/api/merchant/challenge')" data-i="d_402"></button>
-      <button onclick="raw('/api/merchant/challenge?broken_url=nope.md')" data-i="d_400"></button>
-      <button onclick="resetAll()" data-i="d_reset"></button>
+      <button onclick="call('/api/jobs')" data-i="d_jobs"></button>
+      <button onclick="call('/api/pr')" data-i="d_pr"></button>
+      <button onclick="call('/api/merchant/challenge')" data-i="d_402"></button>
+      <button onclick="call('/api/merchant/challenge?broken_url=nope.md')" data-i="d_400"></button>
+      <button onclick="call('/api/demo/reset', {method:'POST'})" data-i="d_reset"></button>
     </div>
-    <pre id="rawout">—</pre>
     <p class="dim" style="font-size:13px" data-i="d_note"></p>
     <video src="/pilot.mp4" controls preload="none"></video>
   </details>
+ </div>
+
+ <aside class="wire">
+   <h2 data-i="w_head"></h2>
+   <p class="hint" id="wirehint" data-i="w_empty"></p>
+   <div id="wirelog"></div>
+ </aside>
 </main>
 <script>
 const JA = {
@@ -633,6 +665,10 @@ const JA = {
   dev:"開発者向けの生データ", d_jobs:"ジョブ一覧", d_pr:"PR成果物", d_402:"402チャレンジ",
   d_400:"知らないリンク（400）", d_reset:"リセット",
   d_note:"402は本物のx402マーチャントが返した内容です。知らないリンクは課金の前に400で断られるので、間違った質問はタダです。",
+  w_head:"実際に流れているデータ",
+  w_empty:"ボタンを押すと、各ステップで送受信された中身がここに順番に出ます。",
+  w_402:"これは請求書であって、支払いではありません。x402では、この条件を見たクライアントが X-PAYMENT 署名を付けて再送し、そこで facilitator が on-chain の settle を行います。このpreviewはmock railなのでそこまで進みません。payTo が 0x…dEaD（burn address）、URLが testserver なのは、プロセス内で条件だけを取り出しているからで、ここからは1円も動かせません。",
+  w_decide:"人間の決定はここで記録されます。state:FAILED は「支払いを許可しなかった」という意味で、仕事の失敗ではありません。次のrunが無料の代替で完了させます。",
   running:"実行中…",
 };
 const EN = {
@@ -660,10 +696,49 @@ const EN = {
   dev:"Raw data for developers", d_jobs:"jobs", d_pr:"PR artifact", d_402:"402 challenge",
   d_400:"unknown link (400)", d_reset:"reset",
   d_note:"The 402 is what the real x402 merchant returned. An unknown link is refused with 400 before any charge, so a wrong question costs nothing.",
+  w_head:"what actually moved",
+  w_empty:"Press a button and every request and response appears here, in order.",
+  w_402:"This is an invoice, not a payment. In x402 the client retries with a signed X-PAYMENT header and the facilitator settles on-chain at that point. This preview runs on the mock rail and never gets there. payTo is 0x…dEaD (the burn address) and the URL says testserver because the terms are pulled in-process - nothing here can move a cent.",
+  w_decide:"The human decision is recorded here. state:FAILED means the purchase was not authorised, not that the job failed - the next run finishes it from a free source.",
   running:"running…",
 };
 let L = localStorage.getItem("lang") === "en" ? EN : JA;
 const j = (r) => r.json();
+
+// Every request the page makes goes through here, so the side panel is a
+// record of what actually moved rather than a hand-written illustration of it.
+let STEP = 0;
+async function call(path, opts = {}) {
+  const response = await fetch(path, opts);
+  let body = null;
+  try { body = await response.clone().json(); } catch { body = "<not json>"; }
+  logWire(opts.method || "GET", path, response.status, body);
+  return body;
+}
+
+function noteFor(path) {
+  if (path.startsWith("/api/merchant/challenge") && !path.includes("nope")) return L.w_402;
+  if (path.includes("/decision")) return L.w_decide;
+  return "";
+}
+
+function logWire(verb, path, status, body) {
+  document.getElementById("wirehint").style.display = "none";
+  const note = noteFor(path);
+  const entry = el(`<div class="w-entry">
+      <div class="w-top">
+        <span class="w-step">${STEP || "·"}</span>
+        <span class="w-verb">${esc(verb)}</span>
+        <span class="w-path">${esc(path)}</span>
+        <span class="w-code ${status < 400 ? "ok" : "no"}">${status}</span>
+      </div>
+      <pre>${esc(JSON.stringify(body, null, 1))}</pre>
+      ${note ? `<p class="w-note">${esc(note)}</p>` : ""}
+    </div>`);
+  const log = document.getElementById("wirelog");
+  log.appendChild(entry);
+  entry.scrollIntoView({behavior: "smooth", block: "nearest"});
+}
 const el = (h) => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstChild; };
 const esc = (t) => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
@@ -678,6 +753,8 @@ function toggleLang(){
   localStorage.setItem("lang", L === EN ? "en" : "ja");
   paint();
   document.getElementById("steps").innerHTML = "";
+  document.getElementById("wirelog").innerHTML = "";
+  document.getElementById("wirehint").style.display = "";
   document.getElementById("again").style.display = "none";
   for (const id of ["go","go2"]) document.getElementById(id).disabled = false;
 }
@@ -697,15 +774,19 @@ let PENDING = null;
 async function story(scenario){
   for (const id of ["go","go2"]) document.getElementById(id).disabled = true;
   steps().innerHTML = "";
-  await fetch("/api/demo/reset", {method:"POST"});
+  document.getElementById("wirelog").innerHTML = "";
+  STEP = 0;
+  await call("/api/demo/reset", {method:"POST"});
 
-  const before = await fetch("/api/site").then(j);
+  STEP = 1;
+  const before = await call("/api/site");
   const index = before.find(f => f.path === "index.md");
   const broken = (index.body.match(/\]\(([^)]*install[^)]*)\)/) || [null,"guides/install.md"])[1];
   step(1, "", L.s1t, L.s1p,
     `<div class="fact">index.md → <span class="mono">${esc(broken)}</span> ✕</div>`);
 
-  const ch = await fetch("/api/merchant/challenge").then(j);
+  STEP = 2;
+  const ch = await call("/api/merchant/challenge");
   const opt = ch.payment_required?.accepts?.[0];
   const price = scenario === "allow" ? "0.05" : "0.50";
   step(2, "", L.s2t, L.s2p,
@@ -713,6 +794,7 @@ async function story(scenario){
       ${L.k_price}: <span class="mono">$${price} USDC</span> ·
       ${L.k_shop}: <span class="mono">${esc(scenario === "ask-unknown-merchant" ? "stranger.example" : "intel.example")}</span></div>`);
 
+  STEP = 3;
   const overCap = Number(price) > 0.10;
   step(3, overCap ? "ask" : "good", L.s3t, L.s3p, `
     <div class="rules">
@@ -723,7 +805,8 @@ async function story(scenario){
     </div>
     <div class="verdict ${overCap ? "ask" : "pay"}">${overCap ? L.v_ask : L.v_pay}</div>`);
 
-  const run = await fetch(`/api/demo/run?scenario=${scenario}`, {method:"POST"}).then(j);
+  STEP = 4;
+  const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"});
   const verdict = run.verdicts[0];
 
   if (verdict.status === "waiting-approval") {
@@ -742,9 +825,10 @@ async function story(scenario){
 async function decide(action){
   const {job, scenario, before, price} = PENDING;
   for (const b of document.querySelectorAll(".approve,.reject")) b.disabled = true;
-  await fetch(`/approval/v1/approvals/${job}/decision`, {
+  STEP = 4;
+  await call(`/approval/v1/approvals/${job}/decision`, {
     method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({action})});
-  const run = await fetch(`/api/demo/run?scenario=${scenario}`, {method:"POST"}).then(j);
+  const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"});
   paid(run.verdicts[0], before, action === "APPROVE" ? price : null);
 }
 
@@ -755,14 +839,15 @@ async function paid(verdict, beforeBody, price){
       `<div class="fact"><span class="mono">${esc(verdict.receipt?.tx || "")}</span> ·
         $${verdict.receipt?.amount || price} ${esc(verdict.receipt?.currency || "USDC")}</div>`);
 
-  const after = await fetch("/api/site").then(j);
+  STEP = 5;
+  const after = await call("/api/site");
   const afterIndex = after.find(f => f.path === "index.md").body;
   // The line that actually moved, not the first link on the page: index.md
   // lists two links and only one of them was broken.
   const bLines = beforeBody.split("\n"), aLines = afterIndex.split("\n");
   const at = bLines.findIndex((line, n) => line !== aLines[n]);
   const bLine = (bLines[at] ?? "").trim(), aLine = (aLines[at] ?? "").trim();
-  const prs = await fetch("/api/pr").then(j);
+  const prs = await call("/api/pr");
 
   step(5, "good", free ? L.s5t_free : L.s5t, free ? L.s5p_free : L.s5p, `
     <div class="diff">
@@ -778,13 +863,6 @@ async function paid(verdict, beforeBody, price){
     </div>`);
   document.getElementById("again").style.display = "inline-block";
 }
-
-const raw = async (path) =>
-  document.getElementById("rawout").textContent =
-    JSON.stringify(await fetch(path).then(j), null, 2);
-const resetAll = async () =>
-  document.getElementById("rawout").textContent =
-    JSON.stringify(await fetch("/api/demo/reset", {method:"POST"}).then(j), null, 2);
 
 paint(); meta();
 </script></body></html>

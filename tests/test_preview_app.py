@@ -474,3 +474,34 @@ def test_an_explicit_bearer_is_never_replaced(preview):
     client = TestClient(preview.app, base_url="https://testserver")
     assert client.get("/approval/v1/approvals",
                       headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
+# -- the wire panel ---------------------------------------------------------
+
+def test_the_raw_data_panel_is_alongside_the_story_not_hidden(client):
+    """The owner asked to watch the data move step by step. Burying it in a
+    collapsed drawer meant reading it out of order, after the fact."""
+    page = client.get("/", headers=auth()).text
+    assert '<aside class="wire">' in page
+    assert 'id="wirelog"' in page
+    assert "実際に流れているデータ" in page and "what actually moved" in page
+    # every request the page makes is logged, so the panel cannot drift from
+    # what really happened
+    assert "async function call(" in page and "function logWire(" in page
+    assert page.count("await fetch(") <= 2, "a request bypasses the wire logger"
+
+
+def test_the_challenge_is_labelled_as_an_invoice_not_a_payment(client):
+    """The 402 shows payTo 0x…dEaD and a testserver URL. Without a word of
+    explanation that reads as a broken demo rather than a deliberate one."""
+    page = client.get("/", headers=auth()).text
+    assert "X-PAYMENT" in page
+    assert "請求書であって、支払いではありません" in page
+    assert "an invoice, not a payment" in page
+    assert "burn address" in page
+
+
+def test_rejection_is_explained_as_a_decision_not_a_failure(client):
+    page = client.get("/", headers=auth()).text
+    assert "仕事の失敗ではありません" in page
+    assert "not that the job failed" in page
