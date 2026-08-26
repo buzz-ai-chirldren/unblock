@@ -1,7 +1,8 @@
 [project]
 name = "allowance-clerk"
 version = "0.1.0"
-description = "Add your description here"
+description = "UNBLOCK: an agent that finishes paywalled jobs under a deterministic allowance policy (Strands + Bedrock + x402)"
+license = "Apache-2.0"
 authors = [
     { name = "BUZZ AI CHILDREN", email = "yamadaike.coffee@gmail.com" }
 ]
