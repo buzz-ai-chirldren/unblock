@@ -341,3 +341,29 @@ def test_driving_the_whole_demo_does_not_touch_the_repository(client):
 
     client.post("/api/demo/reset", headers=auth())
     assert status() == before, "reset changed the repository"
+
+
+# -- the landing page has to explain itself ---------------------------------
+
+def test_the_entry_point_carries_no_internal_jargon(client):
+    """The owner could not present the old screen: it opened with RUN THE JOB
+    and internal verb names. Those belong in the developer drawer, not the
+    first thing a person reads."""
+    client.get(f"/?t={TOKEN}", follow_redirects=False)
+    page = client.get("/", headers=auth()).text
+    for jargon in ("RUN THE JOB", "ALLOW", "DENY", "WAITING_APPROVAL",
+                   "reason_code", "idempotency", "FileRail"):
+        assert jargon not in page, f"{jargon!r} is visible on the landing page"
+
+
+def test_the_story_is_told_in_both_languages(client):
+    page = client.get("/", headers=auth()).text
+    assert "リンク切れを直してみる" in page      # the plain-language primary action
+    assert "Fix the broken link" in page          # the same action for filming
+    for anchor in ("const JA = {", "const EN = {", "toggleLang"):
+        assert anchor in page
+
+
+def test_the_page_still_shows_it_is_a_mock(client):
+    page = client.get("/", headers=auth()).text
+    assert "実際のお金は動きません" in page and "no real money moves" in page

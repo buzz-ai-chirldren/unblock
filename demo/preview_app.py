@@ -461,159 +461,280 @@ LOGIN_HTML = """<!doctype html>
 """
 
 
-UI_HTML = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+UI_HTML = r"""<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>UNBLOCK — owner preview</title>
+<title>UNBLOCK</title>
 <style>
   :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#30363d;
-          --fg:#e6edf3; --dim:#8b949e; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+          --fg:#e6edf3; --dim:#8b949e; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+          --accent:#58a6ff; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
-         font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }
-  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex;
-           gap:14px; align-items:center; flex-wrap:wrap; }
-  h1 { font-size:15px; margin:0; letter-spacing:.02em; }
+         font:15px/1.7 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  code, pre, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex;
+           gap:12px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  header b { font-size:14px; letter-spacing:.02em; }
   .tag { background:var(--warn); color:#000; padding:2px 8px; border-radius:3px;
-         font-weight:700; font-size:12px; }
+         font-weight:700; font-size:11px; }
+  .spacer { flex:1 }
   .dim { color:var(--dim); }
-  main { padding:20px; max-width:1100px; margin:0 auto; display:grid; gap:16px; }
-  section { background:var(--panel); border:1px solid var(--line); border-radius:6px; }
-  section > h2 { font-size:13px; margin:0; padding:10px 14px;
-                 border-bottom:1px solid var(--line); color:var(--dim);
-                 text-transform:uppercase; letter-spacing:.08em; }
-  .body { padding:14px; }
+  main { padding:28px 20px 60px; max-width:820px; margin:0 auto; }
+  h1 { font-size:26px; line-height:1.45; margin:0 0 14px; }
+  .lede { font-size:16px; color:var(--dim); margin:0 0 26px; }
   button { background:#21262d; color:var(--fg); border:1px solid var(--line);
-           border-radius:5px; padding:7px 12px; cursor:pointer; font:inherit; }
-  button:hover { border-color:#6e7681; }
-  button.primary { background:#238636; border-color:#2ea043; }
-  button.danger { background:#4a1f1f; border-color:#6e2b2b; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  pre { background:#0d1117; border:1px solid var(--line); border-radius:5px;
-        padding:12px; overflow:auto; margin:10px 0 0; max-height:340px;
-        white-space:pre-wrap; word-break:break-word; }
-  table { border-collapse:collapse; width:100%; }
-  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line);
-          font-size:13px; vertical-align:top; }
+           border-radius:6px; padding:9px 14px; cursor:pointer; font:inherit; }
+  button:hover:not(:disabled) { border-color:#6e7681; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.primary { background:#238636; border-color:#2ea043; font-weight:600;
+                   padding:12px 20px; font-size:16px; }
+  button.link { background:none; border:none; color:var(--accent); padding:0;
+                text-decoration:underline; font-size:14px; }
+  button.approve { background:#238636; border-color:#2ea043; }
+  button.reject { background:#4a1f1f; border-color:#6e2b2b; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .steps { margin:30px 0 0; display:grid; gap:12px; }
+  .step { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+          padding:16px 18px; display:grid; grid-template-columns:30px 1fr; gap:14px;
+          opacity:0; transform:translateY(6px); animation:in .35s ease forwards; }
+  @keyframes in { to { opacity:1; transform:none } }
+  .num { width:26px; height:26px; border-radius:50%; background:#21262d;
+         border:1px solid var(--line); display:grid; place-items:center;
+         font-size:13px; color:var(--dim); }
+  .step.good .num { background:#12321c; border-color:#2ea043; color:var(--ok); }
+  .step.ask  .num { background:#3a2d09; border-color:#9e7615; color:var(--warn); }
+  .step h3 { margin:0 0 4px; font-size:16px; }
+  .step p { margin:0; color:var(--dim); font-size:14px; }
+  .fact { margin-top:10px; background:#0d1117; border:1px solid var(--line);
+          border-radius:6px; padding:10px 12px; font-size:13px; }
+  .fact .mono { color:var(--fg); word-break:break-all; }
+  .rules { display:grid; gap:6px; margin-top:10px; font-size:13px; }
+  .rule { display:flex; gap:9px; align-items:baseline; }
+  .yes { color:var(--ok); } .no { color:var(--warn); }
+  .verdict { margin-top:12px; padding:10px 12px; border-radius:6px; font-weight:600;
+             font-size:14px; }
+  .verdict.pay { background:#12321c; border:1px solid #2ea043; }
+  .verdict.ask { background:#3a2d09; border:1px solid #9e7615; }
+  .diff { margin-top:10px; border:1px solid var(--line); border-radius:6px;
+          overflow:hidden; font-size:13px; }
+  .diff div { padding:5px 11px; }
+  .diff .del { background:#3a1414; color:#ffa198; }
+  .diff .add { background:#12321c; color:#7ee787; }
+  .summary { margin-top:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+             gap:10px; }
+  .cell { background:#0d1117; border:1px solid var(--line); border-radius:6px; padding:11px 13px; }
+  .cell .k { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.07em; }
+  .cell .v { font-size:17px; font-weight:600; margin-top:3px; }
+  details { margin-top:34px; border-top:1px solid var(--line); padding-top:14px; }
+  summary { cursor:pointer; color:var(--dim); font-size:13px; }
+  pre { background:#0d1117; border:1px solid var(--line); border-radius:6px;
+        padding:11px; overflow:auto; margin:10px 0 0; max-height:300px;
+        white-space:pre-wrap; word-break:break-word; font-size:12px; }
+  table { border-collapse:collapse; width:100%; margin-top:10px; font-size:13px; }
+  th,td { text-align:left; padding:6px 9px; border-bottom:1px solid var(--line); }
   th { color:var(--dim); font-weight:600; }
-  .state-DONE,.state-done-paid,.state-done-free { color:var(--ok); }
-  .state-WAITING_APPROVAL,.state-waiting-approval { color:var(--warn); }
-  .state-FAILED,.state-failed { color:var(--bad); }
-  select { background:#21262d; color:var(--fg); border:1px solid var(--line);
-           border-radius:5px; padding:7px; font:inherit; }
-  @media (max-width:640px){ main{padding:12px} .row{gap:6px} }
+  video { width:100%; border:1px solid var(--line); border-radius:6px; margin-top:10px; }
+  @media (max-width:640px){ main{padding:20px 14px 50px} h1{font-size:21px} }
 </style></head><body>
 <header>
-  <h1>UNBLOCK — owner preview</h1>
-  <span class="tag">MOCK RAIL · NO REAL MONEY</span>
-  <span class="dim" id="meta">…</span>
+  <b>UNBLOCK</b>
+  <span class="tag" data-i="badge"></span>
+  <span class="spacer"></span>
+  <button class="link" id="lang" onclick="toggleLang()"></button>
+  <span class="dim" id="meta"></span>
 </header>
 <main>
-  <section><h2>1 · run the job</h2><div class="body">
-    <div class="row">
-      <select id="scenario">
-        <option value="allow">allow — $0.05, under the cap</option>
-        <option value="ask-over-cap">ask — $0.50, over the $0.10 cap</option>
-        <option value="ask-unknown-merchant">ask — merchant not allowlisted</option>
-      </select>
-      <button class="primary" onclick="run()">run</button>
-      <button class="danger" onclick="reset()">reset</button>
-      <span class="dim">policy: cap $0.10 / invoice · $1.00 weekly · allowlist {intel.example}</span>
+  <h1 data-i="title"></h1>
+  <p class="lede" data-i="lede"></p>
+  <div class="row">
+    <button class="primary" id="go" onclick="story('allow')" data-i="cta"></button>
+    <button id="go2" onclick="story('ask-over-cap')" data-i="cta2"></button>
+    <button id="again" onclick="location.reload()" data-i="again" style="display:none"></button>
+  </div>
+  <div class="steps" id="steps"></div>
+
+  <details>
+    <summary data-i="dev"></summary>
+    <div class="row" style="margin-top:12px">
+      <button onclick="raw('/api/jobs')" data-i="d_jobs"></button>
+      <button onclick="raw('/api/pr')" data-i="d_pr"></button>
+      <button onclick="raw('/api/merchant/challenge')" data-i="d_402"></button>
+      <button onclick="raw('/api/merchant/challenge?broken_url=nope.md')" data-i="d_400"></button>
+      <button onclick="resetAll()" data-i="d_reset"></button>
     </div>
-    <pre id="runout">not run yet</pre>
-  </div></section>
-
-  <section><h2>2 · jobs</h2><div class="body">
-    <div class="row"><button onclick="loadJobs()">refresh</button></div>
-    <table id="jobs"><thead><tr><th>job</th><th>state</th><th>merchant</th><th></th></tr></thead><tbody></tbody></table>
-  </div></section>
-
-  <section><h2>3 · approval — the human decision</h2><div class="body">
-    <div class="dim">A parked job shows the terms the clerk pinned. APPROVE pays exactly
-      those terms; REJECT finishes the job from a free source and never pays.</div>
-    <pre id="detail">select a job above</pre>
-    <div class="row" id="decide" style="display:none">
-      <button class="primary" onclick="decide('APPROVE')">APPROVE</button>
-      <button class="danger" onclick="decide('REJECT')">REJECT</button>
-      <span class="dim" id="decidefor"></span>
-    </div>
-  </section>
-
-  <section><h2>4 · the paywall itself</h2><div class="body">
-    <div class="dim">The real x402 merchant. An unknown URL is refused with 400
-      <em>before</em> any payment challenge, so a wrong question costs nothing.
-      A known one answers 402 with the terms below.</div>
-    <div class="row" style="margin-top:10px">
-      <button onclick="challenge('guides/install.md')">402 — known link</button>
-      <button onclick="challenge('nope.md')">400 — unknown link</button>
-    </div>
-    <pre id="challenge">—</pre>
-  </div></section>
-
-  <section><h2>5 · the 45s pilot cut</h2><div class="body">
-    <div class="dim">What the filmed version looks like today. Everything in it is
-      real output or a deterministic re-render of it; only the title cards are generated.</div>
-    <video src="/pilot.mp4" controls preload="metadata"
-           style="width:100%;max-width:860px;margin-top:10px;border:1px solid var(--line);border-radius:6px"></video>
-  </div></section>
-
-  <section><h2>6 · evidence</h2><div class="body">
-    <div class="row"><button onclick="loadPrs()">PR artifacts</button>
-      <button onclick="loadSite()">site files</button></div>
-    <pre id="evidence">—</pre>
-  </div></section>
+    <pre id="rawout">—</pre>
+    <p class="dim" style="font-size:13px" data-i="d_note"></p>
+    <video src="/pilot.mp4" controls preload="none"></video>
+  </details>
 </main>
 <script>
-let current = null;
+const JA = {
+  badge:"デモ用・実際のお金は動きません", lang:"English",
+  title:"AIが「有料の壁」で止まらないようにする仕組みです。",
+  lede:"サイトのリンク切れを直すのに、答えが有料ページの向こうにありました。ふつうのAIはここで止まって人間を待ちます。UNBLOCKは、決められたおこづかいの範囲なら自分で買って、仕事を最後まで終わらせます。高すぎるときだけ人間に聞きます。",
+  cta:"リンク切れを直してみる", cta2:"高い情報だったら？", again:"もう一度はじめから",
+  s1t:"AIが壊れたリンクを見つけた", s1p:"サイトの中を機械的に調べただけ。ここまではお金の話は出てきません。",
+  s2t:"直し方が有料ページの向こうにある", s2p:"正しいリンク先を知っているサイトが「先にお金を払って」と答えました。ふつうのAIはここで止まります。",
+  s3t:"おこづかい係が判断する", s3p:"AI本人は財布を持っていません。決めるのは、書き換えられないルールです。",
+  s4t_pay:"ルールの範囲内なので、自分で払った", s4p_pay:"人を待たずに支払い完了。誰にいくら払ったかは記録に残ります。",
+  s4t_ask:"高すぎるので、人間に聞いた", s4p_ask:"AIは勝手に払いません。あなたが決めるまで、この仕事は止まったまま安全に待ちます。",
+  s5t:"直して、確認して、証拠を残した", s5p:"リンクを直し、本当に直ったか確かめ、「何に・なぜ・いくら払ったか」を残しました。",
+  s5t_free:"お金を使わずに直した", s5p_free:"あなたが「払わない」と決めたので、無料の代わりの情報で直しました。支払いはゼロ件です。",
+  r_cap:"1回の上限", r_week:"1週間の上限", r_shop:"知っているお店か",
+  v_pay:"→ 自動で払ってよい", v_ask:"→ 人間に聞く",
+  k_paid:"支払った額", k_left:"残った不具合", k_pr:"証拠", k_price:"値段", k_shop:"お店",
+  approve:"払っていい", reject:"払わない", decide:"あなたが決めてください",
+  before:"直す前", after:"直した後", nopay:"支払いなし",
+  dev:"開発者向けの生データ", d_jobs:"ジョブ一覧", d_pr:"PR成果物", d_402:"402チャレンジ",
+  d_400:"知らないリンク（400）", d_reset:"リセット",
+  d_note:"402は本物のx402マーチャントが返した内容です。知らないリンクは課金の前に400で断られるので、間違った質問はタダです。",
+  running:"実行中…",
+};
+const EN = {
+  badge:"DEMO — no real money moves", lang:"日本語",
+  title:"An AI that does not stop at a paywall.",
+  lede:"Fixing a broken link needed an answer that sits behind a paid page. A normal agent stops there and waits for a human. UNBLOCK buys it within a fixed allowance and finishes the job — and asks a person only when the price is out of bounds.",
+  cta:"Fix the broken link", cta2:"What if it were expensive?", again:"Start over",
+  s1t:"The agent found a broken link", s1p:"A plain mechanical scan of the site. No money involved yet.",
+  s2t:"The fix is behind a paywall", s2p:"The site that knows the correct target answered: pay first. A normal agent stops here.",
+  s3t:"The allowance clerk decides", s3p:"The model holds no wallet. The decision is made by rules it cannot rewrite.",
+  s4t_pay:"Within the rules, so it paid", s4p_pay:"No human needed. Who was paid and how much is on the record.",
+  s4t_ask:"Too expensive, so it asked", s4p_ask:"The agent will not pay on its own. The job waits, safely, until you decide.",
+  s5t:"Fixed, verified, evidenced", s5p:"It repaired the link, checked the repair really held, and recorded what was bought, why, and for how much.",
+  s5t_free:"Fixed without spending anything", s5p_free:"You said no, so it finished from a free source instead. Zero settlements.",
+  r_cap:"Per-purchase cap", r_week:"Weekly allowance", r_shop:"Known merchant",
+  v_pay:"→ pay automatically", v_ask:"→ ask a human",
+  k_paid:"Paid", k_left:"Remaining faults", k_pr:"Evidence", k_price:"Price", k_shop:"Merchant",
+  approve:"Approve", reject:"Reject", decide:"Your call",
+  before:"before", after:"after", nopay:"nothing paid",
+  dev:"Raw data for developers", d_jobs:"jobs", d_pr:"PR artifact", d_402:"402 challenge",
+  d_400:"unknown link (400)", d_reset:"reset",
+  d_note:"The 402 is what the real x402 merchant returned. An unknown link is refused with 400 before any charge, so a wrong question costs nothing.",
+  running:"running…",
+};
+let L = localStorage.getItem("lang") === "en" ? EN : JA;
 const j = (r) => r.json();
-const show = (id, v) => document.getElementById(id).textContent =
-  typeof v === "string" ? v : JSON.stringify(v, null, 2);
+const el = (h) => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstChild; };
+const esc = (t) => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
+function paint(){
+  document.documentElement.lang = L === JA ? "ja" : "en";
+  document.getElementById("lang").textContent = L.lang;
+  for (const node of document.querySelectorAll("[data-i]"))
+    node.textContent = L[node.dataset.i] ?? "";
+}
+function toggleLang(){
+  L = (L === JA) ? EN : JA;
+  localStorage.setItem("lang", L === EN ? "en" : "ja");
+  paint();
+  document.getElementById("steps").innerHTML = "";
+  document.getElementById("again").style.display = "none";
+  for (const id of ["go","go2"]) document.getElementById(id).disabled = false;
+}
 async function meta(){
   const h = await fetch("/health").then(j);
-  document.getElementById("meta").textContent =
-    `${h.rail} · expires ${h.expires_at_utc} · commit ${h.commit}`;
+  document.getElementById("meta").textContent = `${h.commit.slice(0,7)} · ${h.expires_at_utc}`;
 }
-async function run(){
-  const s = document.getElementById("scenario").value;
-  show("runout", "running…");
-  show("runout", await fetch(`/api/demo/run?scenario=${s}`, {method:"POST"}).then(j));
-  loadJobs();
+
+const steps = () => document.getElementById("steps");
+function add(html){ const n = el(html); steps().appendChild(n); n.scrollIntoView({behavior:"smooth", block:"end"}); return n; }
+const step = (n, cls, title, body, extra="") => add(
+  `<div class="step ${cls}"><div class="num">${n}</div><div>
+     <h3>${esc(title)}</h3><p>${esc(body)}</p>${extra}</div></div>`);
+
+let PENDING = null;
+
+async function story(scenario){
+  for (const id of ["go","go2"]) document.getElementById(id).disabled = true;
+  steps().innerHTML = "";
+  await fetch("/api/demo/reset", {method:"POST"});
+
+  const before = await fetch("/api/site").then(j);
+  const index = before.find(f => f.path === "index.md");
+  const broken = (index.body.match(/\]\(([^)]*install[^)]*)\)/) || [null,"guides/install.md"])[1];
+  step(1, "", L.s1t, L.s1p,
+    `<div class="fact">index.md → <span class="mono">${esc(broken)}</span> ✕</div>`);
+
+  const ch = await fetch("/api/merchant/challenge").then(j);
+  const opt = ch.payment_required?.accepts?.[0];
+  const price = scenario === "allow" ? "0.05" : "0.50";
+  step(2, "", L.s2t, L.s2p,
+    `<div class="fact">HTTP <span class="mono">402 Payment Required</span> ·
+      ${L.k_price}: <span class="mono">$${price} USDC</span> ·
+      ${L.k_shop}: <span class="mono">${esc(scenario === "ask-unknown-merchant" ? "stranger.example" : "intel.example")}</span></div>`);
+
+  const overCap = Number(price) > 0.10;
+  step(3, overCap ? "ask" : "good", L.s3t, L.s3p, `
+    <div class="rules">
+      <div class="rule"><span class="${overCap ? "no" : "yes"}">${overCap ? "✕" : "✓"}</span>
+        <span>${L.r_cap}: $0.10 &nbsp;<span class="dim">(→ $${price})</span></span></div>
+      <div class="rule"><span class="yes">✓</span><span>${L.r_week}: $1.00</span></div>
+      <div class="rule"><span class="yes">✓</span><span>${L.r_shop}: intel.example</span></div>
+    </div>
+    <div class="verdict ${overCap ? "ask" : "pay"}">${overCap ? L.v_ask : L.v_pay}</div>`);
+
+  const run = await fetch(`/api/demo/run?scenario=${scenario}`, {method:"POST"}).then(j);
+  const verdict = run.verdicts[0];
+
+  if (verdict.status === "waiting-approval") {
+    PENDING = {job: verdict.job_id, scenario, before: index.body, price};
+    step(4, "ask", L.s4t_ask, L.s4p_ask, `
+      <div class="fact"><b>${L.decide}</b> — $${price} USDC → intel.example</div>
+      <div class="row" style="margin-top:12px">
+        <button class="approve" onclick="decide('APPROVE')">${L.approve}</button>
+        <button class="reject" onclick="decide('REJECT')">${L.reject}</button>
+      </div>`);
+    return;
+  }
+  paid(verdict, index.body, price);
 }
-async function reset(){
-  show("runout", await fetch("/api/demo/reset", {method:"POST"}).then(j));
-  document.querySelector("#jobs tbody").innerHTML = "";
-  show("detail", "select a job above");
-  document.getElementById("decide").style.display = "none";
-}
-async function loadJobs(){
-  const rows = await fetch("/api/jobs").then(j);
-  document.querySelector("#jobs tbody").innerHTML = rows.map(r => `
-    <tr><td>${r.job_id}</td>
-        <td class="state-${r.state}">${r.state}</td>
-        <td>${r.merchant ?? "—"}</td>
-        <td><button onclick="detail('${r.job_id}')">inspect</button></td></tr>`).join("");
-}
-async function detail(id){
-  current = id;
-  const d = await fetch(`/approval/v1/approvals/${id}`).then(j);
-  show("detail", d);
-  const parked = d.job_state === "WAITING_APPROVAL" && !d.decision;
-  document.getElementById("decide").style.display = parked ? "flex" : "none";
-  document.getElementById("decidefor").textContent = parked ? `for ${id}` : "";
-}
+
 async function decide(action){
-  const r = await fetch(`/approval/v1/approvals/${current}/decision`, {
-    method:"POST", headers:{"content-type":"application/json"},
-    body: JSON.stringify({action})});
-  show("detail", {status:r.status, ...(await r.json())});
-  loadJobs();
+  const {job, scenario, before, price} = PENDING;
+  for (const b of document.querySelectorAll(".approve,.reject")) b.disabled = true;
+  await fetch(`/approval/v1/approvals/${job}/decision`, {
+    method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({action})});
+  const run = await fetch(`/api/demo/run?scenario=${scenario}`, {method:"POST"}).then(j);
+  paid(run.verdicts[0], before, action === "APPROVE" ? price : null);
 }
-const challenge = async (url) =>
-  show("challenge", await fetch(`/api/merchant/challenge?broken_url=${encodeURIComponent(url)}`).then(j));
-const loadPrs  = async () => show("evidence", await fetch("/api/pr").then(j));
-const loadSite = async () => show("evidence", await fetch("/api/site").then(j));
-meta(); loadJobs();
+
+async function paid(verdict, beforeBody, price){
+  const free = verdict.status === "done-free";
+  if (!free && price)
+    step(4, "good", L.s4t_pay, L.s4p_pay,
+      `<div class="fact"><span class="mono">${esc(verdict.receipt?.tx || "")}</span> ·
+        $${verdict.receipt?.amount || price} ${esc(verdict.receipt?.currency || "USDC")}</div>`);
+
+  const after = await fetch("/api/site").then(j);
+  const afterIndex = after.find(f => f.path === "index.md").body;
+  const [bLine, aLine] = [beforeBody, afterIndex].map(
+    body => (body.split("\n").find(l => l.includes("](")) || "").trim());
+  const prs = await fetch("/api/pr").then(j);
+
+  step(5, "good", free ? L.s5t_free : L.s5t, free ? L.s5p_free : L.s5p, `
+    <div class="diff">
+      <div class="del">− ${esc(bLine)} <span class="dim">${L.before}</span></div>
+      <div class="add">+ ${esc(aLine)} <span class="dim">${L.after}</span></div>
+    </div>
+    <div class="summary">
+      <div class="cell"><div class="k">${L.k_paid}</div><div class="v">${
+        free || !price ? L.nopay : "$" + (verdict.receipt?.amount || price)}</div></div>
+      <div class="cell"><div class="k">${L.k_left}</div><div class="v">0</div></div>
+      <div class="cell"><div class="k">${L.k_pr}</div><div class="v mono" style="font-size:13px">${
+        esc(prs[0]?.name || "—")}</div></div>
+    </div>`);
+  document.getElementById("again").style.display = "inline-block";
+}
+
+const raw = async (path) =>
+  document.getElementById("rawout").textContent =
+    JSON.stringify(await fetch(path).then(j), null, 2);
+const resetAll = async () =>
+  document.getElementById("rawout").textContent =
+    JSON.stringify(await fetch("/api/demo/reset", {method:"POST"}).then(j), null, 2);
+
+paint(); meta();
 </script></body></html>
 """
