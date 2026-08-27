@@ -537,206 +537,161 @@ LOGIN_HTML = """<!doctype html>
 UI_HTML = r"""<!doctype html>
 <html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>UNBLOCK</title>
+<meta name="robots" content="noindex"><title>UNBLOCK</title>
 <style>
   :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#30363d;
-          --fg:#e6edf3; --dim:#8b949e; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
-          --accent:#58a6ff; }
-  * { box-sizing: border-box; }
+          --fg:#e6edf3; --dim:#8b949e; --accent:#58a6ff;
+          --risk:#f85149; --pay:#d29922; --rule:#58a6ff; --safe:#3fb950; --off:#6e7681; }
+  * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
-         font:15px/1.7 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; }
-  code, pre, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+         font:15px/1.6 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
   header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex;
-           gap:12px; align-items:center; flex-wrap:wrap; font-size:13px; }
-  header b { font-size:14px; letter-spacing:.02em; }
-  .tag { background:var(--warn); color:#000; padding:2px 8px; border-radius:3px;
+           gap:10px; align-items:center; font-size:13px; }
+  header b { font-size:14px; }
+  .spacer { flex:1 } .dim { color:var(--dim); }
+  .tag { background:var(--pay); color:#000; padding:2px 7px; border-radius:3px;
          font-weight:700; font-size:11px; }
-  .spacer { flex:1 }
-  .dim { color:var(--dim); }
-  main { padding:24px 20px 60px; max-width:1440px; margin:0 auto; display:grid;
-         grid-template-columns:minmax(0,1fr) 420px; gap:26px; align-items:start; }
-  @media (max-width:1180px){ main { grid-template-columns:minmax(0,1fr); } }
-  .story { min-width:0; }
-  .wire { position:sticky; top:14px; max-height:calc(100vh - 28px); overflow:auto;
-          background:var(--panel); border:1px solid var(--line); border-radius:8px; }
-  @media (max-width:1180px){ .wire { position:static; max-height:none; } }
-  .wire > h2 { font-size:12px; margin:0; padding:11px 14px; color:var(--dim);
+  button { background:#21262d; color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:8px 14px; cursor:pointer; font:inherit; }
+  button:hover:not(:disabled){ border-color:#6e7681; } button:disabled{ opacity:.4; cursor:default; }
+  button.primary { background:#238636; border-color:#2ea043; font-weight:600;
+                   font-size:16px; padding:12px 22px; }
+  button.link { background:none;border:none;color:var(--accent);padding:0;
+                text-decoration:underline;font-size:13px; }
+  main { padding:26px 20px 70px; max-width:1180px; margin:0 auto;
+         display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:24px; align-items:start; }
+  @media (max-width:1000px){ main{ grid-template-columns:minmax(0,1fr); } }
+  h1 { font-size:24px; margin:0 0 6px; }
+  .sub { color:var(--dim); margin:0 0 22px; font-size:15px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+
+  /* the flow */
+  .flow { margin-top:30px; display:flex; align-items:stretch; gap:10px; flex-wrap:wrap; }
+  .step { flex:0 0 auto; display:flex; align-items:center; gap:10px;
+          opacity:0; transform:translateY(6px); animation:in .3s ease forwards; }
+  @keyframes in { to { opacity:1; transform:none } }
+  .node { border:1px solid var(--line); border-radius:10px; background:var(--panel);
+          padding:14px 16px; min-width:150px; transition:padding .25s, min-width .25s; }
+  .node .ico { font-size:20px; line-height:1; }
+  .node .lab { font-size:13px; color:var(--dim); margin-top:6px; }
+  .node .val { font-size:17px; font-weight:600; margin-top:2px; word-break:break-all; }
+  .step.done .node { padding:9px 12px; min-width:0; }
+  .step.done .node .lab, .step.done .node .val { display:none; }
+  .step.done .node .ico::after { content:" ✓"; color:var(--safe); font-size:15px; }
+  .arrow { color:var(--line); font-size:20px; align-self:center; }
+  .t-risk .node { border-color:var(--risk); box-shadow:inset 3px 0 0 var(--risk); }
+  .t-pay  .node { border-color:var(--pay);  box-shadow:inset 3px 0 0 var(--pay); }
+  .t-rule .node { border-color:var(--rule); box-shadow:inset 3px 0 0 var(--rule); }
+  .t-safe .node { border-color:var(--safe); box-shadow:inset 3px 0 0 var(--safe); }
+  .t-ask  .node { border-color:#db6d28;     box-shadow:inset 3px 0 0 #db6d28; }
+  .t-off  .node { border-color:var(--off);  box-shadow:inset 3px 0 0 var(--off); }
+  .chips { display:flex; gap:6px; margin-top:9px; }
+  .rule { font-size:12px; padding:2px 7px; border-radius:99px; border:1px solid var(--line);
+          opacity:0; animation:in .25s ease forwards; }
+  .rule.yes { color:var(--safe); border-color:#2ea043; }
+  .rule.no  { color:var(--pay);  border-color:#9e7615; }
+  .verdict { display:none; }
+
+  /* the one decision */
+  .decide { margin-top:26px; padding:18px; border:1px solid #db6d28; border-radius:10px;
+            background:#2a1a0b; }
+  .decide .q { font-size:17px; font-weight:600; margin-bottom:14px; }
+  .decide button { font-size:17px; padding:14px 26px; font-weight:600; }
+  .approve { background:#238636; border-color:#2ea043; }
+  .reject  { background:#4a1f1f; border-color:#6e2b2b; }
+
+  /* the result */
+  .result { margin-top:26px; }
+  .diff { border:1px solid var(--line); border-radius:8px; overflow:hidden; font-size:13px; }
+  .diff div { padding:6px 12px; }
+  .diff .del { background:#3a1414; color:#ffa198; }
+  .diff .add { background:#12321c; color:#7ee787; }
+  .summary { margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; }
+  .cell { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+          padding:10px 14px; }
+  .cell .k { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.07em; }
+  .cell .v { font-size:17px; font-weight:600; margin-top:2px; }
+  .badge { display:inline-block; padding:1px 6px; border-radius:3px; font-size:10px;
+           font-weight:700; }
+  .badge.mock { background:#3a2d09; color:var(--pay); border:1px solid #9e7615; }
+  .badge.live { background:#12321c; color:var(--safe); border:1px solid #2ea043; }
+
+  /* the panel */
+  .wire { position:sticky; top:14px; background:var(--panel); border:1px solid var(--line);
+          border-radius:10px; max-height:calc(100vh - 28px); overflow:auto; }
+  .wire > h2 { font-size:11px; margin:0; padding:10px 13px; color:var(--dim);
                text-transform:uppercase; letter-spacing:.08em;
-               border-bottom:1px solid var(--line); position:sticky; top:0;
-               background:var(--panel); }
-  .wire .hint { padding:14px; color:var(--dim); font-size:13px; margin:0; }
-  .w-entry { border-bottom:1px solid var(--line); padding:11px 14px; }
+               border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+  .wire .hint { padding:12px 13px; color:var(--dim); font-size:12px; margin:0; }
+  .w-entry { border-bottom:1px solid var(--line); padding:9px 13px; font-size:12px; }
   .w-entry:last-child { border-bottom:none; }
-  .w-top { display:flex; gap:7px; align-items:center; flex-wrap:wrap; font-size:12px;
-           font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-  .w-step { width:19px; height:19px; border-radius:50%; background:#21262d;
-            border:1px solid var(--line); display:grid; place-items:center;
-            font-size:11px; color:var(--dim); flex:none; }
-  .w-verb { color:var(--accent); }
-  .w-path { color:var(--fg); word-break:break-all; flex:1; }
-  .w-code { padding:0 6px; border-radius:3px; font-weight:600; }
-  .w-code.ok { background:#12321c; color:var(--ok); }
-  .w-code.no { background:#3a1414; color:var(--bad); }
-  .w-entry pre { margin:8px 0 0; max-height:230px; font-size:11.5px; }
-  .w-note { margin:8px 0 0; font-size:12px; color:var(--warn); line-height:1.55; }
-  .w-kv { margin:9px 0 0; display:grid; grid-template-columns:auto 1fr; gap:3px 10px;
-          font-size:12px; }
-  .w-kv dt { color:var(--dim); white-space:nowrap; }
-  .w-kv dd { margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-             word-break:break-all; }
-  .w-entry details { margin:9px 0 0; border:none; padding:0; }
-  .w-entry summary { font-size:12px; }
-  .badge { display:inline-block; padding:1px 7px; border-radius:3px; font-size:11px;
-           font-weight:700; letter-spacing:.03em; }
-  .badge.mock { background:#3a2d09; color:var(--warn); border:1px solid #9e7615; }
-  .badge.live { background:#12321c; color:var(--ok); border:1px solid #2ea043; }
-  .w-entry.current { background:#11161d; box-shadow:inset 3px 0 0 var(--accent); }
-  .evidence { border-top:1px solid var(--line); padding:13px 14px; }
-  .evidence h3 { margin:0 0 7px; font-size:12px; color:var(--dim);
-                 text-transform:uppercase; letter-spacing:.08em; }
+  .w-top { display:flex; gap:6px; align-items:center; font-family:ui-monospace,Menlo,monospace; }
+  .w-step { width:17px;height:17px;border-radius:50%;background:#21262d;border:1px solid var(--line);
+            display:grid;place-items:center;font-size:10px;color:var(--dim);flex:none; }
+  .w-verb { color:var(--accent); } .w-path { color:var(--fg); flex:1; word-break:break-all; }
+  .w-code { padding:0 5px;border-radius:3px;font-weight:600; }
+  .w-code.ok { background:#12321c;color:var(--safe); } .w-code.no { background:#3a1414;color:var(--risk); }
+  .w-kv { margin:7px 0 0; display:grid; grid-template-columns:auto 1fr; gap:2px 8px; font-size:12px; }
+  .w-kv dt { color:var(--dim); white-space:nowrap; } .w-kv dd { margin:0; word-break:break-all; }
+  .w-note { margin:7px 0 0; font-size:11px; color:var(--pay); line-height:1.5; }
+  .w-entry details { margin:6px 0 0; } .w-entry summary { font-size:11px; color:var(--dim); }
+  .w-entry pre { margin:6px 0 0; background:#0d1117; border:1px solid var(--line);
+                 border-radius:5px; padding:9px; overflow:auto; max-height:200px;
+                 font-size:11px; white-space:pre-wrap; word-break:break-word; }
+  .w-entry.current { background:#11161d; box-shadow:inset 2px 0 0 var(--accent); }
+  /* collapsed by default: one line each, no detail */
+  .wire.slim .w-kv, .wire.slim .w-note, .wire.slim .w-entry details { display:none; }
+  .evidence { border-top:1px solid var(--line); padding:11px 13px; font-size:12px; }
   .evidence a { color:var(--accent); }
+  .wire.slim .evidence { display:none; }
+
   #wiretoggle { display:none; }
-  @media (max-width:1180px){
-    /* A full-width bar rather than a floating button: a FAB sits on top of
-       whatever happens to be under it, and here that was the reject button. */
+  @media (max-width:1000px){
     #wiretoggle { display:block; position:fixed; left:0; right:0; bottom:0; z-index:21;
                   border-radius:0; border-left:none; border-right:none; border-bottom:none;
                   padding:11px; font-weight:600; }
     main { padding-bottom:64px; }
-    .wire { position:fixed; left:0; right:0; bottom:44px; z-index:20; max-height:72vh;
+    .wire { position:fixed; left:0; right:0; bottom:44px; z-index:20; max-height:70vh;
             border-radius:12px 12px 0 0; transform:translateY(calc(101% + 44px));
             transition:transform .22s ease; }
     .wire.open { transform:none; }
   }
-  h1 { font-size:26px; line-height:1.45; margin:0 0 14px; }
-  .lede { font-size:16px; color:var(--dim); margin:0 0 26px; }
-  button { background:#21262d; color:var(--fg); border:1px solid var(--line);
-           border-radius:6px; padding:9px 14px; cursor:pointer; font:inherit; }
-  button:hover:not(:disabled) { border-color:#6e7681; }
-  button:disabled { opacity:.45; cursor:default; }
-  button.primary { background:#238636; border-color:#2ea043; font-weight:600;
-                   padding:12px 20px; font-size:16px; }
-  button.link { background:none; border:none; color:var(--accent); padding:0;
-                text-decoration:underline; font-size:14px; }
-  button.approve { background:#238636; border-color:#2ea043; }
-  button.reject { background:#4a1f1f; border-color:#6e2b2b; }
-  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  .steps { margin:30px 0 0; display:grid; gap:12px; }
-  .step, .rule, .verdict, .w-entry {
-          opacity:0; transform:translateY(6px); animation:in .3s ease forwards; }
-  .step { background:var(--panel); border:1px solid var(--line); border-radius:8px;
-          padding:16px 18px; display:grid; grid-template-columns:30px 1fr; gap:14px; }
-  @keyframes in { to { opacity:1; transform:none } }
-  @media (prefers-reduced-motion: reduce) {
-    /* Order and pacing still carry the meaning; only the movement goes. */
-    .step, .rule, .verdict, .w-entry { animation:none; opacity:1; transform:none; }
-    .wire { transition:none; }
+  @media (prefers-reduced-motion: reduce){
+    .step, .rule, .w-entry { animation:none; opacity:1; transform:none; }
+    .wire, .node { transition:none; }
   }
-  .num { width:26px; height:26px; border-radius:50%; background:#21262d;
-         border:1px solid var(--line); display:grid; place-items:center;
-         font-size:13px; color:var(--dim); }
-  .step.good .num { background:#12321c; border-color:#2ea043; color:var(--ok); }
-  .step.ask  .num { background:#3a2d09; border-color:#9e7615; color:var(--warn); }
-  .step h3 { margin:0 0 4px; font-size:16px; }
-  .step p { margin:0; color:var(--dim); font-size:14px; }
-  .fact { margin-top:10px; background:#0d1117; border:1px solid var(--line);
-          border-radius:6px; padding:10px 12px; font-size:13px; }
-  .fact .mono { color:var(--fg); word-break:break-all; }
-  .rules { display:grid; gap:6px; margin-top:10px; font-size:13px; }
-  .rule { display:flex; gap:9px; align-items:baseline; }
-  .yes { color:var(--ok); } .no { color:var(--warn); }
-  .verdict { margin-top:12px; padding:10px 12px; border-radius:6px; font-weight:600;
-             font-size:14px; }
-  .verdict.pay { background:#12321c; border:1px solid #2ea043; }
-  .verdict.ask { background:#3a2d09; border:1px solid #9e7615; }
-  .diff { margin-top:10px; border:1px solid var(--line); border-radius:6px;
-          overflow:hidden; font-size:13px; }
-  .diff div { padding:5px 11px; }
-  .diff .del { background:#3a1414; color:#ffa198; }
-  .diff .add { background:#12321c; color:#7ee787; }
-  .summary { margin-top:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-             gap:10px; }
-  .cell { background:#0d1117; border:1px solid var(--line); border-radius:6px; padding:11px 13px; }
-  .cell .k { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.07em; }
-  .cell .v { font-size:17px; font-weight:600; margin-top:3px; }
-  .defn { margin:-16px 0 24px; font-size:15px; color:var(--fg);
-          border-left:3px solid var(--accent); padding-left:12px; }
-  .future { margin-top:36px; background:var(--panel); border:1px solid var(--line);
-            border-radius:8px; padding:18px 20px; }
-  .future h2 { font-size:15px; margin:0 0 14px; }
-  .future .cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:18px; }
-  .future .k { font-size:11px; color:var(--dim); text-transform:uppercase;
-               letter-spacing:.08em; margin-bottom:5px; }
-  .future p { margin:0; font-size:14px; color:var(--dim); }
-  .future .bound { margin-top:16px; padding-top:12px; border-top:1px solid var(--line);
-                   font-size:13px; color:var(--dim); }
-  details { margin-top:34px; border-top:1px solid var(--line); padding-top:14px; }
-  summary { cursor:pointer; color:var(--dim); font-size:13px; }
-  pre { background:#0d1117; border:1px solid var(--line); border-radius:6px;
-        padding:11px; overflow:auto; margin:10px 0 0; max-height:300px;
-        white-space:pre-wrap; word-break:break-word; font-size:12px; }
-  table { border-collapse:collapse; width:100%; margin-top:10px; font-size:13px; }
-  th,td { text-align:left; padding:6px 9px; border-bottom:1px solid var(--line); }
-  th { color:var(--dim); font-weight:600; }
-  video { width:100%; border:1px solid var(--line); border-radius:6px; margin-top:10px; }
-  @media (max-width:640px){ main{padding:20px 14px 50px} h1{font-size:21px} }
 </style></head><body>
 <header>
-  <b>UNBLOCK</b>
-  <span class="tag" data-i="badge"></span>
+  <b>UNBLOCK</b><span class="tag" data-i="badge"></span>
   <span class="spacer"></span>
   <button class="link" id="lang" onclick="toggleLang()"></button>
   <span class="dim" id="meta"></span>
 </header>
 <main>
- <div class="story">
+ <div>
   <h1 data-i="title"></h1>
-  <p class="lede" data-i="lede"></p>
-  <p class="defn" data-i="defn"></p>
+  <p class="sub" data-i="sub"></p>
   <div class="row">
     <button class="primary" id="go" onclick="story('allow')" data-i="cta"></button>
     <button id="go2" onclick="story('ask-over-cap')" data-i="cta2"></button>
     <button id="again" onclick="location.reload()" data-i="again" style="display:none"></button>
   </div>
-  <div class="steps" id="steps"></div>
-
-  <section class="future">
-    <h2 data-i="f_head"></h2>
-    <div class="cols">
-      <div><div class="k" data-i="f_now_k"></div><p data-i="f_now"></p></div>
-      <div><div class="k" data-i="f_next_k"></div><p data-i="f_next"></p></div>
-    </div>
-    <p class="bound" data-i="f_bound"></p>
-  </section>
-
-  <details>
-    <summary data-i="dev"></summary>
-    <div class="row" style="margin-top:12px">
-      <button onclick="call('/api/jobs')" data-i="d_jobs"></button>
-      <button onclick="call('/api/pr')" data-i="d_pr"></button>
-      <button onclick="call('/api/merchant/challenge')" data-i="d_402"></button>
-      <button onclick="call('/api/merchant/challenge?broken_url=nope.md')" data-i="d_400"></button>
-      <button onclick="call('/api/demo/reset', {method:'POST'})" data-i="d_reset"></button>
-    </div>
-    <p class="dim" style="font-size:13px" data-i="d_note"></p>
-    <video src="/pilot.mp4" controls preload="none"></video>
-  </details>
+  <div class="flow" id="steps"></div>
+  <div id="tail"></div>
+  <p class="dim" style="margin-top:34px;font-size:12px" data-i="bound"></p>
  </div>
 
- <aside class="wire">
-   <h2 data-i="w_head"></h2>
+ <aside class="wire slim" id="wire">
+   <h2><span data-i="w_head"></span><span class="spacer"></span>
+       <button class="link" onclick="toggleEvidence()" id="evtoggle" data-i="w_more"></button></h2>
    <p class="hint" id="wirehint" data-i="w_empty"></p>
    <div id="wirelog"></div>
    <div class="evidence">
-     <h3 data-i="e_head"></h3>
-     <dl class="w-kv">
-       <dt data-i="e_rail_k"></dt><dd>x402 · Base Sepolia</dd>
-       <dt data-i="e_settle_k"></dt><dd><span class="badge live">CONFIRMED</span></dd>
-       <dt data-i="e_tx_k"></dt>
-       <dd><a href="https://sepolia.basescan.org/tx/0x64a0a2d15d9dd4e33c419c0af1289acf30b0eea074630ab177e9760bff430834"
-              target="_blank" rel="noreferrer">0x64a0a2d1…bff430834</a></dd>
-     </dl>
+     <div class="dim" data-i="e_head"></div>
+     <div style="margin-top:5px">x402 · Base Sepolia <span class="badge live">CONFIRMED</span></div>
+     <a href="https://sepolia.basescan.org/tx/0x64a0a2d15d9dd4e33c419c0af1289acf30b0eea074630ab177e9760bff430834"
+        target="_blank" rel="noreferrer">0x64a0a2d1…bff430834</a>
      <p class="w-note" style="color:var(--dim)" data-i="e_note"></p>
    </div>
  </aside>
@@ -744,114 +699,59 @@ UI_HTML = r"""<!doctype html>
 </main>
 <script>
 const JA = {
-  badge:"デモ用・実際のお金は動きません", lang:"English",
-  title:"AIにお金を使わせたとき、誰が止めるんですか？",
-  lede:"いま会社が年間契約で買っている脅威分析のような情報を、これからはAIが「見つけた瞬間に1件だけ」買うようになります。買えるAIは速い。でも、止める人がいません。UNBLOCKは支払いの権限をAI本人から外し、金額・週の予算・相手・承認された内容を、AIが書き換えられないコードで確認します。範囲内なら自分で払って仕事を終わらせ、外れたときだけ人間に聞きます。",
-  defn:"UNBLOCKは、AIのお金の使い方を守るローカルな防火壁です。",
-  f_head:"どこで効くのか",
-  f_now_k:"今日", f_now:"AIにagent walletやAPIの課金キー、クラウドの予算を渡した時点で、もう必要です。速く働かせるほど、止める仕組みが要ります。",
-  s2_note:"この402は repo 同梱のデモ merchant が生成したもので、説明文は Gate C の fixture のままです。金額・通貨・ネットワークは上の物語と同じ値です。",
-  f_next_k:"これから", f_next:"x402やTempo MPPのように、機械が機械から直接買う経路が増えるほど効いてきます。支払える agent には、必ず制御層が要ります。",
-  f_bound:"正直に言うと、いま実証できているのは「支払い」の経路です。同じ考え方は他の取り消せない操作にも広げられますが、そこはまだ実装も検証もしていません。",
-  cta:"この未評価の部品を調べる", cta2:"高い情報だったら？", again:"もう一度はじめから",
-  s1t:"公開直前のビルドに、誰も評価していない部品が入っている",
-  s1p:"新しく入った package にレビュー記録がありません。まだ警告も被害も出ていないので、人間は気づいていません。危険とも安全とも、いまは言えません。",
-  s2t:"危険かどうかは、最新の脅威分析にしか載っていない",
-  s2p:"無料の情報にはまだ判定がありません。挙動・接続先・安全なバージョンを持っているのは脅威情報サービスだけで、解析結果1件ごとに支払いが要ります。ふつうのAIはここで止まります。",
-  s3t:"おこづかい係が判断する", s3p:"AI本人は財布を持っていません。決めるのは、書き換えられないルールです。",
-  s4t_pay:"ルールの範囲内なので、自分で払った", s4p_pay:"人を待たずに支払い完了。誰にいくら払ったかは記録に残ります。",
-  s4t_ask:"高すぎるので、人間に聞いた", s4p_ask:"AIは勝手に払いません。あなたが決めるまで、この仕事は止まったまま安全に待ちます。",
-  s5t:"解析が安全と判定したバージョンへ差し替えた",
-  s5p:"買った解析は 0.4.1 が外部へ送信していた先まで特定していました。安全と確認された 0.4.3 へ差し替え、参照が解決するか確かめ、「何に・なぜ・いくら払ったか」を残しました。機能は動いたままです。",
-  s5t_free:"お金は使わず、機能を止めて安全側に倒した",
-  s5p_free:"払わない選択をしたので、0.4.1 が何をするか分からないままです。この package を切って隔離しました。ビルドは通りますが、その機能は止まります。支払いはゼロ件です。",
-  r_cap:"1回の上限", r_week:"1週間の上限", r_shop:"知っているお店か",
-  v_pay:"→ 自動で払ってよい", v_ask:"→ 人間に聞く",
-  k_paid:"支払った額", k_left:"残った不具合", k_pr:"証拠", k_price:"値段", k_shop:"お店",
-  k_observed:"観測した送信先", k_cleared:"安全と確認した版", k_when:"解析時刻",
-  approve:"払っていい", reject:"払わない", decide:"あなたが決めてください",
-  before:"直す前", after:"直した後", nopay:"支払いなし",
-  dev:"開発者向けの生データ", d_jobs:"ジョブ一覧", d_pr:"PR成果物", d_402:"402チャレンジ",
-  d_400:"知らないリンク（400）", d_reset:"リセット",
-  d_note:"402は本物のx402マーチャントが返した内容です。知らないリンクは課金の前に400で断られるので、間違った質問はタダです。",
-  w_head:"実際に流れているデータ",
-  w_empty:"ボタンを押すと、各ステップで送受信された中身がここに順番に出ます。",
-  w_402:"これは請求書であって、支払いではありません。x402では、この条件を見たクライアントが X-PAYMENT 署名を付けて再送し、そこで facilitator が on-chain の settle を行います。このpreviewはmock railなのでそこまで進みません。payTo が 0x…dEaD（burn address）、URLが testserver なのは、プロセス内で条件だけを取り出しているからで、ここからは1円も動かせません。",
-  w_decide:"人間の決定はここで記録されます。state:FAILED は「支払いを許可しなかった」という意味で、仕事の失敗ではありません。次のrunが無料の代替で完了させます。",
-  w_toggle:"データを見る", w_close:"閉じる",
-  err_t:"途中で失敗しました", err_p:"保留していたデータは破棄しました。もう一度はじめから試してください。",
-  k_amount:"金額", k_network:"ネットワーク", k_asset:"通貨", k_payto:"支払先",
-  k_merchant:"相手", k_settle:"決済", k_rail:"経路", k_verdict:"判定",
-  k_job:"ジョブ", k_action:"決定", k_state:"状態", k_files:"ファイル", k_count:"件数",
-  v_notbroadcast:"NOT BROADCAST", v_inproc:"in-process merchant（公開URLではありません）",
-  v_burn:"burn address（ここへは1円も動きません）",
+  badge:"デモ・実際のお金は動きません", lang:"English",
+  title:"AIのお金の使い方を守る、ローカルな防火壁。",
+  sub:"未評価の部品を見つけた → 少額で調べた → 安全に直した。",
+  cta:"やってみる", cta2:"高かったら？", again:"もう一度",
+  n1:"未評価", n2:"解析", n3:"予算内", n3_ask:"要確認",
+  n4:"支払い済", n5:"安全版へ", n5_off:"隔離",
+  decide:"$0.50 の解析を買いますか？", approve:"買う", reject:"買わない",
+  k_paid:"支払い", k_left:"残り", k_pr:"証拠", nopay:"なし",
+  k_amount:"金額", k_shop:"相手", k_settle:"決済", k_verdict:"判定",
+  k_observed:"送信先", k_cleared:"安全版", k_action:"決定",
+  v_notbroadcast:"NOT BROADCAST",
+  w_head:"実データ", w_more:"証拠を見る", w_less:"畳む",
+  w_empty:"押すと、やり取りがここに出ます。",
+  w_402:"これは請求書で、支払いではありません。payTo は burn address、相手は公開URLではない in-process merchant なので、ここから1円も動きません。",
+  w_decide:"FAILED は「支払いを許可しなかった」です。仕事の失敗ではありません。",
+  bound:"実証済みは支払いの経路だけです。",
+  w_toggle:"データ", w_close:"閉じる",
+  e_head:"過去のLIVE実証（別の実行）",
+  e_note:"Gate C で実際に決済した記録です。上は mock の今回分で、資金は動いていません。",
+  err_t:"失敗しました", err_p:"保留は破棄しました。",
   raw:"生JSON",
-  e_head:"過去のlive実証（この実行とは別）",
-  e_rail_k:"経路", e_settle_k:"決済", e_tx_k:"tx",
-  e_note:"これはGate Cで実際にBase Sepoliaへ決済した記録です。上のログはmock railの今回の実行で、資金は動いていません。混同しないよう分けて表示しています。",
-  running:"実行中…",
 };
 const EN = {
-  badge:"DEMO — no real money moves", lang:"日本語",
-  title:"You gave an AI a wallet. Who stops the spending?",
-  lede:"The threat analysis a company buys on an annual contract today is the kind of thing an agent will buy one answer at a time, the moment it finds something it cannot judge. An agent that can buy is fast, and nobody is stopping it. UNBLOCK takes the spending authority away from the model and checks the amount, the weekly budget, the counterparty and the approved terms in code the model cannot rewrite. Inside the rules it pays and finishes the job; outside them it asks a person.",
-  defn:"UNBLOCK is a local spending firewall for AI agents.",
-  f_head:"Where this matters",
-  f_now_k:"Today", f_now:"The moment an agent holds a wallet, a billing key or a cloud budget. The faster it works, the more it needs something that can stop it.",
-  s2_note:"This 402 comes from the demo merchant in this repo, so its description string is still the Gate C fixture's. The amount, asset and network are the same values the story just quoted.",
-  f_next_k:"Next", f_next:"As machine-to-machine rails like x402 and Tempo MPP spread. Every agent that can spend will need a control layer.",
-  f_bound:"To be exact: what this code proves is the payment path. The same shape extends to other irreversible actions, but that is not built or verified here.",
-  cta:"Check this unreviewed package", cta2:"What if it were expensive?", again:"Start over",
-  s1t:"A release build contains a package nobody has reviewed",
-  s1p:"A new dependency turned up with no review card. There is no warning and no incident yet, so nobody has noticed - and nothing here can call it safe or dangerous.",
-  s2t:"Whether it is dangerous is only in the current threat analysis",
-  s2p:"The free sources carry no verdict yet. The behaviour, the outbound connections and the safe version sit with a threat intelligence service, one paid analysis at a time. A normal agent stops here.",
-  s3t:"The allowance clerk decides", s3p:"The model holds no wallet. The decision is made by rules it cannot rewrite.",
-  s4t_pay:"Within the rules, so it paid", s4p_pay:"No human needed. Who was paid and how much is on the record.",
-  s4t_ask:"Too expensive, so it asked", s4p_ask:"The agent will not pay on its own. The job waits, safely, until you decide.",
-  s5t:"Moved to the version the analysis cleared",
-  s5p:"The report named the host 0.4.1 was posting to. The build moves to 0.4.3, the reference resolves, and what was bought, why and for how much is on the record. The feature keeps working.",
-  s5t_free:"Nothing spent, and the feature is off",
-  s5p_free:"You declined, so nobody knows what 0.4.1 does. The dependency is switched off and quarantined: the build ships, that feature does not. Zero settlements.",
-  r_cap:"Per-purchase cap", r_week:"Weekly allowance", r_shop:"Known merchant",
-  v_pay:"→ pay automatically", v_ask:"→ ask a human",
-  k_paid:"Paid", k_left:"Remaining faults", k_pr:"Evidence", k_price:"Price", k_shop:"Merchant",
-  k_observed:"Observed destination", k_cleared:"Cleared version", k_when:"Analysed at",
-  approve:"Approve", reject:"Reject", decide:"Your call",
-  before:"before", after:"after", nopay:"nothing paid",
-  dev:"Raw data for developers", d_jobs:"jobs", d_pr:"PR artifact", d_402:"402 challenge",
-  d_400:"unknown link (400)", d_reset:"reset",
-  d_note:"The 402 is what the real x402 merchant returned. An unknown link is refused with 400 before any charge, so a wrong question costs nothing.",
-  w_head:"what actually moved",
-  w_empty:"Press a button and every request and response appears here, in order.",
-  w_402:"This is an invoice, not a payment. In x402 the client retries with a signed X-PAYMENT header and the facilitator settles on-chain at that point. This preview runs on the mock rail and never gets there. payTo is 0x…dEaD (the burn address) and the URL says testserver because the terms are pulled in-process - nothing here can move a cent.",
-  w_decide:"The human decision is recorded here. state:FAILED means the purchase was not authorised, not that the job failed - the next run finishes it from a free source.",
-  w_toggle:"Show data", w_close:"Close",
-  err_t:"The run failed part-way", err_p:"Anything held back was discarded. Start over.",
-  k_amount:"Amount", k_network:"Network", k_asset:"Asset", k_payto:"Pay to",
-  k_merchant:"Merchant", k_settle:"Settlement", k_rail:"Rail", k_verdict:"Verdict",
-  k_job:"Job", k_action:"Decision", k_state:"State", k_files:"Files", k_count:"Count",
-  v_notbroadcast:"NOT BROADCAST", v_inproc:"in-process merchant (not a public URL)",
-  v_burn:"burn address (nothing can reach it)",
-  raw:"raw JSON",
+  badge:"DEMO — no real money", lang:"日本語",
+  title:"A local spending firewall for AI agents.",
+  sub:"Found an unreviewed package → bought one analysis → fixed it safely.",
+  cta:"Run it", cta2:"If it cost more?", again:"Again",
+  n1:"Unreviewed", n2:"Analysis", n3:"In budget", n3_ask:"Needs a human",
+  n4:"Paid", n5:"Safe version", n5_off:"Quarantined",
+  decide:"Buy the $0.50 analysis?", approve:"Buy", reject:"Decline",
+  k_paid:"Paid", k_left:"Left", k_pr:"Evidence", nopay:"none",
+  k_amount:"Amount", k_shop:"Merchant", k_settle:"Settlement", k_verdict:"Verdict",
+  k_observed:"Posting to", k_cleared:"Cleared", k_action:"Decision",
+  v_notbroadcast:"NOT BROADCAST",
+  w_head:"live data", w_more:"evidence", w_less:"collapse",
+  w_empty:"Press a button and the exchange appears here.",
+  w_402:"An invoice, not a payment. payTo is the burn address and the merchant is in-process, not a public URL - nothing here can move a cent.",
+  w_decide:"FAILED means the purchase was not authorised, not that the job failed.",
+  bound:"Only the payment path is proven.",
+  w_toggle:"Data", w_close:"Close",
   e_head:"verified live run (a different run)",
-  e_rail_k:"Rail", e_settle_k:"Settlement", e_tx_k:"tx",
-  e_note:"A real Base Sepolia settlement from Gate C. The log above is this run, on the mock rail, where no money moved. They are kept apart on purpose.",
-  running:"running…",
+  e_note:"A real Gate C settlement. Above is this mock run, where no money moved.",
+  err_t:"The run failed", err_p:"Anything held back was discarded.",
+  raw:"raw JSON",
 };
 let L = localStorage.getItem("lang") === "en" ? EN : JA;
 const j = (r) => r.json();
+const el = (h) => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstChild; };
+const esc = (t) => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
-// Every request the page makes goes through here, so the side panel is a
-// record of what actually moved rather than a hand-written illustration of it.
 let STEP = 0;
 let HELD = [];
 
-// `defer` holds the entry back until flushWire(). One response can feed three
-// things on the left (the verdict, the payment, the result), so logging it the
-// instant it arrives put the outcome on the right before the story had said
-// it. The record is unchanged - only the moment it is shown moves, to the beat
-// of the first step that reads from it.
 async function call(path, opts = {}, defer = false) {
   const response = await fetch(path, opts);
   let body = null;
@@ -860,118 +760,110 @@ async function call(path, opts = {}, defer = false) {
   if (defer) HELD.push(entry); else logWire(...entry);
   return body;
 }
-
-// Drains in arrival order, so holding an entry back never reorders the record.
 function flushWire() {
-  const queued = HELD;
-  HELD = [];
+  const queued = HELD; HELD = [];
   for (const entry of queued) logWire(...entry);
 }
-
 function noteFor(path) {
-  if (path.startsWith("/api/merchant/challenge") && !path.includes("nope"))
-    return L.w_402 + " " + L.s2_note;
+  if (path.startsWith("/api/merchant/challenge") && !path.includes("nope")) return L.w_402;
   if (path.includes("/decision")) return L.w_decide;
   return "";
 }
-
-// The fields worth reading first, per endpoint. Anything not summarised here
-// still shows its full JSON below - the summary is a lens, never a filter.
+// At most four rows: the panel is a glance, the raw JSON is the detail.
 function summarise(path, body) {
   const kv = [];
-  const badge = (cls, text) => `<span class="badge ${cls}">${text}</span>`;
-
+  const badge = `<span class="badge mock">${L.v_notbroadcast}</span>`;
   if (path.startsWith("/api/merchant/challenge") && body?.payment_required) {
     const t = body.payment_required.accepts?.[0] || {};
-    // USDC carries 6 decimals; show both so the raw number is not a mystery.
-    const human = t.amount ? (Number(t.amount) / 1e6).toFixed(2) : "?";
-    kv.push([L.k_amount, `$${human} USDC <span class="dim">(${esc(t.amount)} atomic, 6 dp)</span>`]);
-    kv.push([L.k_network, `Base Sepolia <span class="dim">(${esc(t.network || "")})</span>`]);
-    kv.push([L.k_asset, esc(t.asset || "")]);
-    kv.push([L.k_payto, `${esc(t.payTo || "")} <span class="dim">${L.v_burn}</span>`]);
-    kv.push([L.k_merchant, L.v_inproc]);
-    kv.push([L.k_settle, badge("mock", L.v_notbroadcast)]);
-  } else if (path.startsWith("/api/demo/run") && body?.verdicts) {
+    kv.push([L.k_amount, `$${(Number(t.amount || 0) / 1e6).toFixed(2)} USDC`]);
+    kv.push([L.k_shop, "threat-intel.example"]);
+    kv.push([L.k_settle, badge]);
+  } else if (path.startsWith("/api/demo/run") && body?.verdicts?.[0]) {
     const v = body.verdicts[0];
-    if (!v) return "";
     kv.push([L.k_verdict, esc(v.status)]);
-    kv.push([L.k_job, esc(v.job_id || "")]);
-    kv.push([L.k_rail, `MOCK`]);
-    if (v.receipt) kv.push([L.k_amount, `$${esc(v.receipt.amount)} ${esc(v.receipt.currency)}`]);
-    kv.push([L.k_settle, badge("mock", L.v_notbroadcast)]);
+    if (v.receipt) kv.push([L.k_amount, `$${esc(v.receipt.amount)}`]);
+    kv.push([L.k_settle, badge]);
   } else if (path.startsWith("/api/analysis")) {
     if (!body?.purchased) return "";
-    const a = body.analysis || {};
-    kv.push([L.k_observed, esc(a.final_url || "")]);
-    kv.push([L.k_cleared, esc(a.suggested_replacement || "")]);
-    kv.push([L.k_when, esc(a.observed_at || "")]);
+    kv.push([L.k_observed, esc(body.analysis?.final_url || "")]);
+    kv.push([L.k_cleared, esc(body.analysis?.suggested_replacement || "")]);
   } else if (path.includes("/decision")) {
     kv.push([L.k_action, esc(body?.action_in_effect || "")]);
-    kv.push([L.k_state, esc(body?.state || "")]);
-    kv.push([L.k_settle, badge("mock", L.v_notbroadcast)]);
-  } else if (Array.isArray(body)) {
-    kv.push([L.k_count, String(body.length)]);
-    if (body[0]?.path) kv.push([L.k_files, body.map(f => esc(f.path)).join(", ")]);
-  }
-
-  if (!kv.length) return "";
-  return `<dl class="w-kv">${kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+    kv.push([L.k_settle, badge]);
+  } else return "";
+  return `<dl class="w-kv">${kv.slice(0, 4).map(([k, v]) =>
+    `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
 }
-
 function logWire(verb, path, status, body, atStep = STEP) {
   document.getElementById("wirehint").style.display = "none";
   const note = noteFor(path);
   const entry = el(`<div class="w-entry current">
-      <div class="w-top">
-        <span class="w-step">${atStep || "·"}</span>
-        <span class="w-verb">${esc(verb)}</span>
-        <span class="w-path">${esc(path)}</span>
-        <span class="w-code ${status < 400 ? "ok" : "no"}">${status}</span>
-      </div>
+      <div class="w-top"><span class="w-step">${atStep || "·"}</span>
+        <span class="w-verb">${esc(verb)}</span><span class="w-path">${esc(path)}</span>
+        <span class="w-code ${status < 400 ? "ok" : "no"}">${status}</span></div>
       ${summarise(path, body)}
       ${note ? `<p class="w-note">${esc(note)}</p>` : ""}
       <details><summary>${esc(L.raw)}</summary>
         <pre>${esc(JSON.stringify(body, null, 1))}</pre></details>
     </div>`);
   const log = document.getElementById("wirelog");
-  // Only the newest entry is highlighted: the panel follows the story rather
-  // than leaving the reader to find their place in it.
   for (const previous of log.querySelectorAll(".w-entry.current"))
     previous.classList.remove("current");
   log.appendChild(entry);
   entry.scrollIntoView({behavior: "smooth", block: "nearest"});
 }
-const el = (h) => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstChild; };
-const esc = (t) => String(t).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
-// One place to end a run badly. A held response must never survive an error:
-// the next story would flush somebody else's outcome into the panel.
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const pace = (ms) => new Promise(r => setTimeout(r, REDUCED ? Math.min(ms, 120) : ms));
+const BEAT = 800, HALF = 380;
+const steps = () => document.getElementById("steps");
+
+// One line of text per node: an icon, what it is, what it says.
+function node(n, tone, ico, label, value, extra = "") {
+  for (const previous of steps().querySelectorAll(".step:not(.done)"))
+    previous.classList.add("done");
+  const wrap = el(`<div class="step t-${tone}" data-n="${n}">
+      ${n > 1 ? `<span class="arrow">→</span>` : ""}
+      <div class="node"><div class="ico">${ico}</div>
+        <div class="lab">${esc(label)}</div>
+        <div class="val">${value}</div>${extra}</div>
+    </div>`);
+  steps().appendChild(wrap);
+  wrap.scrollIntoView({behavior: "smooth", block: "nearest", inline: "end"});
+  return wrap;
+}
+
+function toggleEvidence() {
+  const wire = document.getElementById("wire");
+  const slim = wire.classList.toggle("slim");
+  document.getElementById("evtoggle").textContent = slim ? L.w_more : L.w_less;
+}
+function toggleWire() {
+  const open = document.getElementById("wire").classList.toggle("open");
+  document.getElementById("wiretoggle").textContent = open ? L.w_close : L.w_toggle;
+}
 function abortStory(error) {
   HELD = [];
   for (const id of ["go","go2"]) document.getElementById(id).disabled = false;
-  const banner = el(`<div class="step ask"><div class="num">!</div><div>
-      <h3>${esc(L.err_t)}</h3><p>${esc(L.err_p)}</p>
-      <div class="fact mono">${esc(String(error && error.message || error))}</div></div></div>`);
-  steps().appendChild(banner);
-  banner.scrollIntoView({behavior: "smooth", block: "end"});
-}
-
-function toggleWire(){
-  const open = document.querySelector(".wire").classList.toggle("open");
-  document.getElementById("wiretoggle").textContent = open ? L.w_close : L.w_toggle;
+  document.getElementById("tail").appendChild(el(
+    `<div class="decide"><div class="q">${esc(L.err_t)}</div>
+       <div class="dim">${esc(L.err_p)}</div>
+       <div class="mono" style="margin-top:8px">${esc(String(error && error.message || error))}</div></div>`));
 }
 
 function paint(){
   document.documentElement.lang = L === JA ? "ja" : "en";
   document.getElementById("lang").textContent = L.lang;
-  for (const node of document.querySelectorAll("[data-i]"))
-    node.textContent = L[node.dataset.i] ?? "";
+  for (const n of document.querySelectorAll("[data-i]")) n.textContent = L[n.dataset.i] ?? "";
+  const wire = document.getElementById("wire");
+  document.getElementById("evtoggle").textContent =
+    wire.classList.contains("slim") ? L.w_more : L.w_less;
 }
 function toggleLang(){
   L = (L === JA) ? EN : JA;
   localStorage.setItem("lang", L === EN ? "en" : "ja");
   paint();
-  document.getElementById("steps").innerHTML = "";
+  steps().innerHTML = ""; document.getElementById("tail").innerHTML = "";
   document.getElementById("wirelog").innerHTML = "";
   document.getElementById("wirehint").style.display = "";
   document.getElementById("again").style.display = "none";
@@ -982,27 +874,6 @@ async function meta(){
   document.getElementById("meta").textContent = `${h.commit.slice(0,7)} · ${h.expires_at_utc}`;
 }
 
-// The story is paced so a person can read one thing before the next arrives.
-// The delay sits BEFORE each request, not after it, so the step on the left and
-// its wire entry on the right appear together and neither runs ahead of the
-// work it describes.
-const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const pace = (ms) => new Promise(r => setTimeout(r, REDUCED ? Math.min(ms, 120) : ms));
-const BEAT = 800, HALF = 380;
-
-const steps = () => document.getElementById("steps");
-function add(html){ const n = el(html); steps().appendChild(n); n.scrollIntoView({behavior:"smooth", block:"end"}); return n; }
-const step = (n, cls, title, body, extra="") => add(
-  `<div class="step ${cls}"><div class="num">${n}</div><div>
-     <h3>${esc(title)}</h3><p>${esc(body)}</p>${extra}</div></div>`);
-
-// Append into an already-visible step, so a group of checks arrives one at a
-// time rather than as a finished list.
-async function reveal(node, html, wait = HALF) {
-  node.querySelector("div:last-child").appendChild(el(html));
-  await pace(wait);
-}
-
 let PENDING = null;
 
 async function story(scenario){
@@ -1011,79 +882,56 @@ async function story(scenario){
 
 async function runStory(scenario){
   for (const id of ["go","go2"]) document.getElementById(id).disabled = true;
-  steps().innerHTML = "";
+  steps().innerHTML = ""; document.getElementById("tail").innerHTML = "";
   document.getElementById("wirelog").innerHTML = "";
-  HELD = [];   // a story never inherits anything a previous one held back
-  STEP = 0;
+  HELD = []; STEP = 0;
   await call("/api/demo/reset", {method:"POST"});
 
   await pace(BEAT);
   STEP = 1;
   const before = await call("/api/site");
   const doc = before.find(f => f.path === "release.md");
-  const broken = (doc.body.match(/\]\(([^)]*quickparse-0\.4\.1[^)]*)\)/)
-                  || [null, "vendor/quickparse-0.4.1.md"])[1];
-  step(1, "", L.s1t, L.s1p,
-    `<div class="fact">release.md → <span class="mono">${esc(broken)}</span> ✕</div>`);
+  node(1, "risk", "📦", L.n1, `<span class="mono">quickparse 0.4.1</span>`);
 
   const price = scenario === "allow" ? "0.05" : "0.50";
   await pace(BEAT);
   STEP = 2;
-  // Ask the merchant for the terms at the price this run is about to narrate,
-  // so the story and the wire log cannot disagree about what it costs.
   await call(`/api/merchant/challenge?price=${price}`);
-  step(2, "", L.s2t, L.s2p,
-    `<div class="fact">HTTP <span class="mono">402 Payment Required</span> ·
-      ${L.k_price}: <span class="mono">$${price} USDC</span> ·
-      ${L.k_shop}: <span class="mono">${esc(scenario === "ask-unknown-merchant" ? "stranger.example" : "threat-intel.example")}</span></div>`);
+  node(2, "pay", "🔒", L.n2, `<span class="mono">$${price}</span>`);
 
   await pace(BEAT);
   const overCap = Number(price) > 0.10;
-  const known = scenario !== "ask-unknown-merchant";
-  const card = step(3, overCap || !known ? "ask" : "good", L.s3t, L.s3p,
-    `<div class="rules"></div>`);
-  const rules = card.querySelector(".rules");
-  // One check at a time: the point of this step is that a rule was applied,
-  // and a finished list does not show anything being applied.
-  const checks = [
-    [!overCap, `${L.r_cap}: $0.10 &nbsp;<span class="dim">(→ $${price})</span>`],
-    [true, `${L.r_week}: $1.00`],
-    [known, `${L.r_shop}: threat-intel.example`],
-  ];
-  for (const [ok, text] of checks) {
-    rules.appendChild(el(`<div class="rule"><span class="${ok ? "yes" : "no"}">${ok ? "✓" : "✕"}</span><span>${text}</span></div>`));
+  // Drawn with the rules it is about to apply; the wording and the colour are
+  // set from what the policy actually returned, a beat later.
+  const card = node(3, "rule", "🛡️", L.n3, `<span class="mono">$0.10 / $1.00</span>`,
+                    `<div class="chips"></div>`);
+  const chips = card.querySelector(".chips");
+  for (const [ok, text] of [[!overCap, "$0.10"], [true, "$1.00"],
+                            [scenario !== "ask-unknown-merchant", "🏪"]]) {
+    chips.appendChild(el(`<span class="rule ${ok ? "yes" : "no"}">${ok ? "✓" : "✕"} ${text}</span>`));
     await pace(HALF);
   }
 
-  // Tagged 3, not 4: this response is read first by step 3's verdict. The tag
-  // is what the "panel never runs ahead of the story" check compares against,
-  // so it has to name the step the data is actually used by.
-  STEP = 3;
+  STEP = 4;
   const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"}, true);
   const verdict = run.verdicts[0];
   const parked = verdict.status === "waiting-approval";
-  // The verdict line comes from what the policy actually returned, not from a
-  // restatement of it, so the screen cannot claim a decision the code did not make.
-  await pace(BEAT);
-  card.querySelector("div:last-child").appendChild(
-    el(`<div class="verdict ${parked ? "ask" : "pay"}">${parked ? L.v_ask : L.v_pay}</div>`));
-  // NOT flushed here. The verdict is drawn from this response, but the same
-  // response also carries the outcome - flushing it now puts done-paid in the
-  // panel while the story is still on step 3. It goes out with step 4, which
-  // is the step that announces what the outcome was.
-  STEP = 4;
+  card.classList.remove("t-rule");
+  card.classList.add(parked ? "t-ask" : "t-rule");
+  card.querySelector(".ico").textContent = parked ? "🙋" : "🛡️";
+  card.querySelector(".lab").textContent = parked ? L.n3_ask : L.n3;
   await pace(BEAT);
 
   if (parked) {
     PENDING = {job: verdict.job_id, scenario, before: doc.body, price};
-    step(4, "ask", L.s4t_ask, L.s4p_ask, `
-      <div class="fact"><b>${L.decide}</b> — $${price} USDC → threat-intel.example</div>
-      <div class="row" style="margin-top:12px">
-        <button class="approve" onclick="decide('APPROVE')">${L.approve}</button>
-        <button class="reject" onclick="decide('REJECT')">${L.reject}</button>
-      </div>`);
-    flushWire();   // waiting-approval lands with the step that asks
-    return;   // nothing further is generated until a human chooses
+    document.getElementById("tail").appendChild(el(`<div class="decide">
+        <div class="q">${esc(L.decide)}</div>
+        <div class="row">
+          <button class="approve" onclick="decide('APPROVE')">${esc(L.approve)}</button>
+          <button class="reject" onclick="decide('REJECT')">${esc(L.reject)}</button>
+        </div></div>`));
+    flushWire();
+    return;
   }
   await paid(verdict, doc.body, price);
 }
@@ -1100,53 +948,44 @@ async function runDecision(action){
     method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({action})});
   await pace(BEAT);
   const run = await call(`/api/demo/run?scenario=${scenario}`, {method:"POST"}, true);
+  document.getElementById("tail").innerHTML = "";
   await paid(run.verdicts[0], before, action === "APPROVE" ? price : null);
 }
 
 async function paid(verdict, beforeBody, price){
   const free = verdict.status === "done-free";
   if (!free && price) {
+    node(4, "safe", "💳", L.n4,
+      `<span class="mono">$${esc(verdict.receipt?.amount || price)}</span>
+       <span class="badge mock">${esc(L.v_notbroadcast)}</span>`);
+    flushWire();
     await pace(BEAT);
-    // The badge belongs on this side too: the story column is what gets
-    // filmed and screenshotted, and a receipt id next to a dollar amount
-    // reads as a real payment once it is cropped out of the page.
-    step(4, "good", L.s4t_pay, L.s4p_pay,
-      `<div class="fact"><span class="mono">${esc(verdict.receipt?.tx || "")}</span> ·
-        $${verdict.receipt?.amount || price} ${esc(verdict.receipt?.currency || "USDC")}
-        <span class="badge mock" style="margin-left:6px">${esc(L.v_notbroadcast)}</span></div>`);
-    flushWire();   // same tick as the step it belongs to
   }
 
-  await pace(BEAT);
   STEP = 5;
-  // What the money actually bought, read back from the ledger. Skipped on the
-  // rejected path because there is nothing to read.
   if (!free && price) await call(`/api/analysis?job_id=${encodeURIComponent(verdict.job_id)}`, {}, true);
-  // Held as well: on the rejected path the run response carries done-free, and
-  // showing that before step 5 is drawn tells the ending early - the same fault
-  // the paid path had, one branch over.
   const after = await call("/api/site", {}, true);
   const afterIndex = after.find(f => f.path === "release.md").body;
-  // The line that actually moved, not the first link in the file: release.md
-  // cites a package that IS reviewed as well.
   const bLines = beforeBody.split("\n"), aLines = afterIndex.split("\n");
   const at = bLines.findIndex((line, n) => line !== aLines[n]);
   const bLine = (bLines[at] ?? "").trim(), aLine = (aLines[at] ?? "").trim();
   const prs = await call("/api/pr", {}, true);
 
-  step(5, "good", free ? L.s5t_free : L.s5t, free ? L.s5p_free : L.s5p, `
-    <div class="diff">
-      <div class="del">− ${esc(bLine)} <span class="dim">${L.before}</span></div>
-      <div class="add">+ ${esc(aLine)} <span class="dim">${L.after}</span></div>
-    </div>
-    <div class="summary">
-      <div class="cell"><div class="k">${L.k_paid}</div><div class="v">${
-        free || !price ? L.nopay : "$" + (verdict.receipt?.amount || price)}</div></div>
-      <div class="cell"><div class="k">${L.k_left}</div><div class="v">0</div></div>
-      <div class="cell"><div class="k">${L.k_pr}</div><div class="v mono" style="font-size:13px">${
-        esc(prs[0]?.name || "—")}</div></div>
-    </div>`);
-  flushWire();   // run (if still held), site and pr, in the same tick as step 5
+  node(5, free ? "off" : "safe", free ? "🚫" : "✅", free ? L.n5_off : L.n5,
+       `<span class="mono">${esc(free ? "quarantined" : "quickparse 0.4.3")}</span>`);
+  document.getElementById("tail").appendChild(el(`<div class="result">
+      <div class="diff">
+        <div class="del">− ${esc(bLine)}</div>
+        <div class="add">+ ${esc(aLine)}</div>
+      </div>
+      <div class="summary">
+        <div class="cell"><div class="k">${esc(L.k_paid)}</div><div class="v">${
+          free || !price ? esc(L.nopay) : "$" + esc(verdict.receipt?.amount || price)}</div></div>
+        <div class="cell"><div class="k">${esc(L.k_left)}</div><div class="v">0</div></div>
+        <div class="cell"><div class="k">${esc(L.k_pr)}</div><div class="v mono" style="font-size:13px">${
+          esc(prs[0]?.name || "—")}</div></div>
+      </div></div>`));
+  flushWire();
   document.getElementById("again").style.display = "inline-block";
 }
 

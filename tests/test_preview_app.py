@@ -365,9 +365,10 @@ def test_the_page_opens_with_the_risk_not_the_feature(client):
     future. A visitor who does not know x402 has to recognise the problem in
     the first line."""
     page = client.get("/", headers=auth()).text
-    assert "AIにお金を使わせたとき、誰が止めるんですか？" in page
-    assert "You gave an AI a wallet. Who stops the spending?" in page
     assert "ローカルな防火壁" in page and "local spending firewall" in page
+    # one line of subtitle carries the whole arc
+    assert "未評価の部品を見つけた → 少額で調べた → 安全に直した。" in page
+    assert "Found an unreviewed package" in page
 
 
 def test_the_future_section_does_not_overclaim(client):
@@ -375,24 +376,23 @@ def test_the_future_section_does_not_overclaim(client):
     extension, but this code has only ever proved the payment path. The page
     has to say so, or the demo quietly promises something it cannot show."""
     page = client.get("/", headers=auth()).text
-    assert "x402" in page and "Tempo MPP" in page
-    assert "いま実証できているのは「支払い」の経路です" in page
-    assert "what this code proves is the payment path" in page
+    assert "実証済みは支払いの経路だけです。" in page
+    assert "Only the payment path is proven." in page
     for overclaim in ("deploy", "データベース", "メール送信"):
         assert overclaim not in page, f"the page claims {overclaim!r} is covered"
 
 
 def test_the_story_is_told_in_both_languages(client):
     page = client.get("/", headers=auth()).text
-    assert "この未評価の部品を調べる" in page      # the plain-language primary action
-    assert "Check this unreviewed package" in page   # the same action for filming
+    assert "やってみる" in page       # the primary action, in as few words as it takes
+    assert "Run it" in page
     for anchor in ("const JA = {", "const EN = {", "toggleLang"):
         assert anchor in page
 
 
 def test_the_page_still_shows_it_is_a_mock(client):
     page = client.get("/", headers=auth()).text
-    assert "実際のお金は動きません" in page and "no real money moves" in page
+    assert "実際のお金は動きません" in page and "no real money" in page
 
 
 # -- the browser session reaches the approval API ---------------------------
@@ -486,9 +486,9 @@ def test_the_raw_data_panel_is_alongside_the_story_not_hidden(client):
     """The owner asked to watch the data move step by step. Burying it in a
     collapsed drawer meant reading it out of order, after the fact."""
     page = client.get("/", headers=auth()).text
-    assert '<aside class="wire">' in page
+    assert '<aside class="wire slim"' in page
     assert 'id="wirelog"' in page
-    assert "実際に流れているデータ" in page and "what actually moved" in page
+    assert "実データ" in page and "live data" in page
     # every request the page makes is logged, so the panel cannot drift from
     # what really happened
     assert "async function call(" in page and "function logWire(" in page
@@ -499,9 +499,8 @@ def test_the_challenge_is_labelled_as_an_invoice_not_a_payment(client):
     """The 402 shows payTo 0x…dEaD and a testserver URL. Without a word of
     explanation that reads as a broken demo rather than a deliberate one."""
     page = client.get("/", headers=auth()).text
-    assert "X-PAYMENT" in page
-    assert "請求書であって、支払いではありません" in page
-    assert "an invoice, not a payment" in page
+    assert "請求書で、支払いではありません" in page
+    assert "An invoice, not a payment" in page
     assert "burn address" in page
 
 
@@ -515,8 +514,10 @@ def test_the_panel_leads_with_readable_fields_then_the_raw_json(client):
     page = client.get("/", headers=auth()).text
     assert "function summarise(" in page
     assert '<details><summary>' in page and 'JSON.stringify(body, null, 1)' in page
-    for label in ("k_amount", "k_network", "k_asset", "k_payto", "k_settle"):
+    for label in ("k_amount", "k_shop", "k_settle", "k_verdict"):
         assert f"{label}:" in page
+    # a glance, not a table: at most four rows reach the panel
+    assert "kv.slice(0, 4)" in page
 
 
 def test_mock_and_live_settlement_are_never_shown_as_the_same_thing(client):
@@ -528,19 +529,19 @@ def test_mock_and_live_settlement_are_never_shown_as_the_same_thing(client):
     assert "0x64a0a2d15d9dd4e33c419c0af1289acf30b0eea074630ab177e9760bff430834" in page
     assert "sepolia.basescan.org" in page
     # the live tx is labelled as a different run, not this one
-    assert "この実行とは別" in page and "a different run" in page
+    assert "別の実行" in page and "a different run" in page
 
 
 def test_the_in_process_merchant_is_not_passed_off_as_a_public_url(client):
     page = client.get("/", headers=auth()).text
-    assert "公開URLではありません" in page and "not a public URL" in page
+    assert "公開URLではない" in page and "not a public URL" in page
     assert "burn address" in page
 
 
 def test_the_panel_is_reachable_on_a_narrow_screen(client):
     page = client.get("/", headers=auth()).text
     assert 'id="wiretoggle"' in page
-    assert "@media (max-width:1180px)" in page
+    assert "@media (max-width:1000px)" in page
     assert ".wire.open" in page
 
 
@@ -571,8 +572,8 @@ def test_the_story_column_marks_its_own_payment_as_mock(client):
     a receipt id next to a dollar amount with nothing to say it was a mock.
     The story column is the one that gets filmed and cropped."""
     page = client.get("/", headers=auth()).text
-    story_receipt = page[page.index("L.s4t_pay, L.s4p_pay"):]
-    assert "badge mock" in story_receipt[:600]
+    node_four = page[page.index('node(4, "safe"'):]
+    assert "badge mock" in node_four[:400]
 
 
 # -- the story arrives one step at a time -----------------------------------
@@ -583,12 +584,12 @@ def test_the_steps_are_paced_rather_than_dumped(client):
     page = client.get("/", headers=auth()).text
     assert "const pace = (ms)" in page
     assert "await pace(BEAT)" in page
-    assert "async function reveal(" in page
+    assert "await pace(HALF)" in page
 
 
 def test_the_pause_precedes_the_request_so_both_columns_move_together(client):
     page = client.get("/", headers=auth()).text
-    story = page[page.index("async function story(scenario)"):page.index("async function decide")]
+    story = page[page.index("async function runStory(scenario)"):page.index("async function decide")]
     # each phase waits, then calls, then draws - never draws ahead of the work
     assert story.index("await pace(BEAT)") < story.index('await call("/api/site")')
     assert story.count("await pace(") >= 4
@@ -603,18 +604,18 @@ def test_reduced_motion_keeps_the_order_and_drops_the_movement(client):
 
 def test_the_expensive_path_generates_nothing_past_the_human(client):
     page = client.get("/", headers=auth()).text
-    story = page[page.index("async function story(scenario)"):page.index("async function decide")]
+    story = page[page.index("async function runStory(scenario)"):page.index("async function decide")]
     parked = story[story.index("if (parked) {"):]
     assert "return;" in parked, "the story must stop at the decision"
-    assert "L.s5t" not in parked, "step 5 is generated before anyone chose"
+    assert "node(5" not in parked, "the last node is drawn before anyone chose"
 
 
 def test_the_verdict_line_comes_from_the_policy_not_a_restatement(client):
     page = client.get("/", headers=auth()).text
     assert 'const parked = verdict.status === "waiting-approval";' in page
-    # the line is appended from that value, not recomputed from the price
-    assert 'parked ? L.v_ask : L.v_pay' in page
-    assert "overCap ? L.v_ask" not in page, "the verdict is being restated locally"
+    # the node's wording and colour are set from that value, not from the price
+    assert 'parked ? L.n3_ask : L.n3' in page
+    assert 'overCap ? L.n3_ask' not in page, "the verdict is being restated locally"
 
 
 def test_the_run_buttons_are_disabled_while_a_story_runs(client):
@@ -655,17 +656,17 @@ def test_the_panel_does_not_show_an_outcome_before_the_story_tells_it(client):
     assert "function flushWire(" in page
     # the run call is held back
     assert '{method:"POST"}, true)' in page
-    story = page[page.index("async function story(scenario)"):page.index("async function decide")]
-    assert story.index("flushWire();") > story.index('await pace(BEAT);\n  card.querySelector')
+    story = page[page.index("async function runStory(scenario)"):page.index("async function decide")]
+    assert story.index("flushWire();") > story.index("card.querySelector")
 
     # the rejected path carries done-free in that same response, so step 5's
     # own requests are held too and everything lands as step 5 is drawn
     paid = page[page.index("async function paid("):]
     assert 'await call("/api/site", {}, true)' in paid
     assert 'await call("/api/pr", {}, true)' in paid
-    # the left element is drawn first and the flush follows in the same tick,
-    # so no frame can catch the panel ahead of the story
-    assert paid.index('step(5, "good"') < paid.index("flushWire();   // run (if still held)")
+    # the node is drawn first and the flush follows in the same tick, so no
+    # frame can catch the panel ahead of the story
+    assert paid.index("node(5,") < paid.rindex("flushWire();")
 
 
 def test_a_held_entry_keeps_the_step_it_was_made_at(client):
@@ -684,7 +685,7 @@ def test_held_entries_drain_in_arrival_order(client):
 
 def test_a_new_story_inherits_nothing_that_was_held(client):
     page = client.get("/", headers=auth()).text
-    story = page[page.index("async function story(scenario)"):page.index("async function decide")]
+    story = page[page.index("async function runStory(scenario)"):page.index("async function decide")]
     assert "HELD = [];" in story
     assert story.index("HELD = [];") < story.index('await call("/api/demo/reset"')
 

@@ -65,7 +65,10 @@ const ev = (ws, expression) =>
   const probe = `(() => {
     const panel = document.getElementById('wirelog').textContent;
     return {
-      left: document.querySelectorAll('.step').length,
+      // the highest node drawn, not how many: the rejected path skips node 4,
+      // so counting cards called the story a step behind where it really was
+      left: Math.max(0, ...[...document.querySelectorAll('.step')]
+              .map(n => Number(n.dataset.n)).filter(Number.isFinite)),
       paid: panel.includes('done-paid'),
       free: panel.includes('done-free'),
       tag: Math.max(0, ...[...document.querySelectorAll('.w-step')]
