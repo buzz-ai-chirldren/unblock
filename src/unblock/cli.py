@@ -21,6 +21,7 @@ def _policy(args) -> Policy:
         per_invoice_cap=Decimal(args.per_request_cap),
         weekly_allowance=Decimal(args.weekly_budget),
         merchant_allowlist=frozenset(args.allow or ()),
+        merchant_blocklist=frozenset(args.block or ()),
     )
 
 
@@ -36,6 +37,11 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--weekly-budget", default="1.00")
     check.add_argument("--allow", action="append", metavar="MERCHANT",
                        help="allowlisted merchant; repeat for more")
+    # Without this the CLI cannot express a whole input to the policy, and DENY
+    # is only reachable by asking about a non-positive amount -- which reads as
+    # "DENY does not really happen" to anyone using this to understand the rules.
+    check.add_argument("--block", action="append", metavar="MERCHANT",
+                       help="blocklisted merchant (always DENY); repeat for more")
     check.add_argument("--spent-this-week", default="0")
 
     jobs = sub.add_parser("jobs", help="jobs in a ledger, newest first")
@@ -53,7 +59,9 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("amounts must be decimal numbers")
         print(json.dumps({"decision": verdict.decision.value, "reason": verdict.reason}, indent=1))
         # ASK is not a failure -- it is the product working -- so only DENY is
-        # worth a non-zero status to a caller wiring this into a script.
+        # worth a non-zero status to a caller wiring this into a script. A usage
+        # error also leaves with 2, but prints no JSON, so the two are still
+        # tellable apart by a caller that reads stdout.
         return 2 if verdict.decision is Decision.DENY else 0
 
     ledger = Ledger(args.db)

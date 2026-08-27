@@ -46,6 +46,11 @@ uv run unblock check --merchant threat-intel.example --amount 0.50 \
 uv run unblock jobs spend.db --waiting     # what is parked for a human
 ```
 
+`check` takes `--allow`, `--block`, `--per-request-cap`, `--weekly-budget` and
+`--spent-this-week`, so it can express any input the policy reads. It exits 0
+for ALLOW **and for ASK** — being stopped for a human is the policy working,
+not a failure — and 2 for DENY.
+
 ## The demo story
 
 A docs site has a broken link. Fixing it needs paid "Link Intelligence" from
