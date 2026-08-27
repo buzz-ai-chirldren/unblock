@@ -559,7 +559,11 @@ UI_HTML = r"""<!doctype html>
                    font-size:16px; padding:12px 22px; }
   button.link { background:none;border:none;color:var(--accent);padding:0;
                 text-decoration:underline;font-size:13px; }
-  main { padding:26px 20px 70px; max-width:1180px; margin:0 auto;
+  /* 1280, not 1180: at 1180 the left column was 816px while the finished
+     five-node chain measures 871px, so the row auto-scrolled and clipped
+     the first node once the last one landed. Narrower viewports still
+     scroll - that is the graceful case - but a desktop must fit it. */
+  main { padding:26px 20px 70px; max-width:1280px; margin:0 auto;
          display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:24px; align-items:start; }
   @media (max-width:1000px){ main{ grid-template-columns:minmax(0,1fr); } }
   h1 { font-size:24px; margin:0 0 6px; }
