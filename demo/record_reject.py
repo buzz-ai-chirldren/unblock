@@ -23,12 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from clerk.approval_api import create_app  # noqa: E402
-from clerk.jobs import Clerk  # noqa: E402
-from clerk.ledger import Ledger  # noqa: E402
-from clerk.policy import Policy  # noqa: E402
-from clerk.rails import MockRail  # noqa: E402
-from unblock import IntelOffer, Unblock, detect  # noqa: E402
+from unblock.approval_api import create_app  # noqa: E402
+from unblock import Unblock  # noqa: E402
+from unblock import Ledger  # noqa: E402
+from unblock.policy import Policy  # noqa: E402
+from unblock.rails import MockRail  # noqa: E402
+from unblock.demo_pipeline import IncidentPipeline, IntelOffer, detect  # noqa: E402
 from unblock.tracing import configure_tracing  # noqa: E402
 
 configure_tracing()
@@ -58,11 +58,11 @@ policy = Policy(currency="USDC", weekly_allowance=Decimal("5.00"),
 
 
 def factory():
-    return Clerk(Ledger(RUN_DIR / "ledger.db"), policy, rail)
+    return Unblock(Ledger(RUN_DIR / "ledger.db"), policy, rail)
 
 
-pipeline = Unblock(site, "index.md", factory, offer, RUN_DIR / "prs",
-                   free_sources={BROKEN: GOOD})
+pipeline = IncidentPipeline(site, "index.md", factory, offer, RUN_DIR / "prs",
+                            free_sources={BROKEN: GOOD})
 
 step(1, f"detect: {[(i.file, i.link) for i in detect(site)]}")
 (incident,) = detect(site)

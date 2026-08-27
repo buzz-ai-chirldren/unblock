@@ -1,7 +1,7 @@
 """Payment rails behind one interface so the state machine never cares which
 rail moved the money. MockRail proves the mechanics (Gate A provisional);
 FileRail persists settlements to its own SQLite file so crash/concurrency tests
-can observe, from outside the clerk process, exactly how many times money moved;
+can observe, from outside the UNBLOCK process, exactly how many times money moved;
 X402Rail (Base Sepolia) provides the real settlement; an AgentCore Payments
 adapter can slot in later without touching policy/ledger/jobs.
 
@@ -93,8 +93,8 @@ class MockRail:
 
 class FileRail:
     """Mock rail whose settlements live in their own SQLite file, independent of
-    the clerk's ledger. This is the external observer for the hard tests: kill
-    the clerk between settle and receipt-record, or race two whole processes,
+    UNBLOCK's ledger. This is the external observer for the hard tests: kill
+    UNBLOCK between settle and receipt-record, or race two whole processes,
     then count settlement rows from the parent process."""
 
     name = "filemock"

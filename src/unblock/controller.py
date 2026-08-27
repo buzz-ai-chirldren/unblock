@@ -1,4 +1,4 @@
-"""The Clerk state machine: the part the official payment stack does not have.
+"""The UNBLOCK state machine: the part the official payment stack does not have.
 
 run_job() drives one unit of work that hits a paywall:
 
@@ -31,20 +31,20 @@ from .ledger import Ledger
 from .policy import Decision, Invoice, Policy, evaluate
 from .rails import PaymentRail, RailError, SettlementUncertain
 
-_tracer = trace.get_tracer("clerk")
+_tracer = trace.get_tracer("unblock")
 
 
 def _invoice_attrs(invoice: Invoice) -> dict:
     return {
-        "clerk.merchant": invoice.merchant,
-        "clerk.invoice_id": invoice.invoice_id,
-        "clerk.amount": str(invoice.amount),
-        "clerk.currency": invoice.currency,
-        "clerk.invoice_digest": invoice.digest(),
+        "unblock.merchant": invoice.merchant,
+        "unblock.invoice_id": invoice.invoice_id,
+        "unblock.amount": str(invoice.amount),
+        "unblock.currency": invoice.currency,
+        "unblock.invoice_digest": invoice.digest(),
     }
 
 
-class Clerk:
+class Unblock:
     def __init__(self, ledger: Ledger, policy: Policy, rail: PaymentRail):
         self.ledger = ledger
         self.policy = policy
@@ -79,8 +79,8 @@ class Clerk:
 
         with _tracer.start_as_current_span("policy", attributes=_invoice_attrs(invoice)) as span:
             verdict = evaluate(invoice, self.policy, self.ledger.spent_this_week(self.policy.currency))
-            span.set_attribute("clerk.decision", verdict.decision.value)
-            span.set_attribute("clerk.reason", verdict.reason)
+            span.set_attribute("unblock.decision", verdict.decision.value)
+            span.set_attribute("unblock.reason", verdict.reason)
         if verdict.decision is Decision.DENY:
             self.ledger.mark(invoice, "DENIED", verdict.reason)
             self.ledger.upsert_job(job_id, "FAILED", {"work": work, "why": verdict.reason}, invoice)
@@ -172,9 +172,9 @@ class Clerk:
             return "WAITING_APPROVAL"
         try:
             with _tracer.start_as_current_span("pay", attributes=_invoice_attrs(invoice)) as span:
-                span.set_attribute("clerk.rail", self.rail.name)
+                span.set_attribute("unblock.rail", self.rail.name)
                 receipt = self.rail.pay(invoice)
-                span.set_attribute("clerk.tx", receipt.get("tx", ""))
+                span.set_attribute("unblock.tx", receipt.get("tx", ""))
         except RailError as e:
             # Rail refused BEFORE anything was signed: safe to retry later from ASK_PENDING.
             self.ledger.mark(invoice, "ASK_PENDING", f"rail error: {e}")

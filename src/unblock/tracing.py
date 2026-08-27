@@ -1,4 +1,4 @@
-"""Opt-in trace export. The clerk and pipeline emit OpenTelemetry spans via
+"""Opt-in trace export. UNBLOCK and the demo pipeline emit OpenTelemetry spans via
 the API only, which is a no-op until a provider is installed - so production
 behavior never depends on this module.
 

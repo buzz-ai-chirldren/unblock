@@ -1,13 +1,21 @@
-"""UNBLOCK pipeline: detect a broken link, buy the information needed to fix
-it through the allowance clerk, repair exactly one allowlisted file, verify,
-and emit a PR artifact - all under ONE job id so payment idempotency, durable
-approval, and crash recovery are inherited from the clerk unchanged.
+"""The demo application built on UNBLOCK: detect a broken link, buy the
+information needed to fix it through the spending controller, repair exactly
+one allowlisted file, verify, and emit a PR artifact - all under ONE job id so
+payment idempotency, durable approval, and crash recovery are inherited from
+the controller unchanged.
+
+This is a demo, not the product. `site_dir`, `allowed_file` and `pr_dir` are
+this demo's concepts; UNBLOCK itself knows only about invoices, a policy and a
+rail. It lives here rather than in demo/ because it is traced and tested like
+library code, but it is deliberately not exported from `unblock` -- the name
+`Unblock` belongs to the spending controller.
 
 Stage map (Gate C):
 
   detect()        deterministic link check over the site's markdown files
-  Unblock.run()   one incident end-to-end:
-                    clerk.run_job(job_id, invoice)   -- pay for link intel
+  IncidentPipeline.run()
+                  one incident end-to-end:
+                    unblock.run_job(job_id, invoice)  -- pay for link intel
                       DONE             -> strict 5-field intel record from the
                                           PAID response body, validated against
                                           THIS incident's broken link
@@ -20,12 +28,12 @@ Stage map (Gate C):
                     _write_pr()   atomic exclusive create: one PR per job id
 
 Idempotency by construction: incident_id (and so job_id / invoice_id) is a
-hash of (file, link); the clerk never settles the same invoice twice; the fix
+hash of (file, link); UNBLOCK never settles the same invoice twice; the fix
 is a no-op when already applied; the PR file is created with O_EXCL. Re-running
 after any crash converges to the same single settlement and single PR.
 
 The LLM orchestrator (demo/poc_unblock.py) only sequences these calls; every
-safety property lives in this deterministic code and the clerk beneath it.
+safety property lives in this deterministic code and in UNBLOCK beneath it.
 """
 
 from __future__ import annotations
@@ -42,8 +50,8 @@ from urllib.parse import quote
 
 from opentelemetry import trace
 
-from clerk.jobs import Clerk
-from clerk.policy import Invoice
+from unblock.controller import Unblock
+from unblock.policy import Invoice
 
 _tracer = trace.get_tracer("unblock")
 
@@ -109,26 +117,26 @@ def detect(site_dir: Path) -> list[Incident]:
     an existing file INSIDE the site. External schemes are out of scope.
 
     Standalone scans trace as `scan` (their own trace); the per-job `detect`
-    span lives inside Unblock.run() under the unblock.job root."""
+    span lives inside IncidentPipeline.run() under the unblock.job root."""
     with _tracer.start_as_current_span("scan") as span:
         incidents = _detect_raw(site_dir)
         span.set_attribute("unblock.broken_links", len(incidents))
         return incidents
 
 
-class Unblock:
+class IncidentPipeline:
     def __init__(
         self,
         site_dir: Path,
         allowed_file: str,
-        clerk_factory: Callable[[], Clerk],
+        unblock_factory: Callable[[], Unblock],
         offer: IntelOffer,
         pr_dir: Path,
         free_sources: dict[str, str] | None = None,
     ):
         self.site_dir = Path(site_dir).resolve()
         self.allowed_file = allowed_file  # the ONE file this pipeline may edit
-        self.clerk_factory = clerk_factory
+        self.unblock_factory = unblock_factory
         self.offer = offer
         self.pr_dir = Path(pr_dir)
         self.pr_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +146,7 @@ class Unblock:
 
     def run(self, incident: Incident) -> dict:
         """One incident end-to-end under a single trace root carrying the
-        job id; every stage below emits a child span (clerk adds policy/pay)."""
+        job id; every stage below emits a child span (UNBLOCK adds policy/pay)."""
         with _tracer.start_as_current_span("unblock.job", attributes={
             "unblock.job_id": incident.job_id,
             "unblock.incident_id": incident.incident_id,
@@ -169,9 +177,9 @@ class Unblock:
                     "why": "link is no longer broken; nothing to buy or fix"}
 
         invoice = self._invoice(incident)
-        clerk = self.clerk_factory()
+        unblock = self.unblock_factory()
         try:
-            state = clerk.run_job(incident.job_id, invoice, work=f"buy link intel for {incident.link}")
+            state = unblock.run_job(incident.job_id, invoice, work=f"buy link intel for {incident.link}")
             if state == "WAITING_APPROVAL":
                 return {"status": "waiting-approval", "job_id": incident.job_id,
                         "approve_via": f"POST /v1/approvals/{incident.job_id}/decision"}
@@ -185,7 +193,7 @@ class Unblock:
                 source = {"kind": "free-fallback", "receipt": None}
             else:  # DONE - paid now, or already paid on an earlier (crashed) run
                 with _tracer.start_as_current_span("fetch") as span:
-                    receipt = clerk.ledger.receipt(invoice) or {}
+                    receipt = unblock.ledger.receipt(invoice) or {}
                     new_target = self._replacement_from(receipt, incident.link)
                     span.set_attribute("unblock.intel_valid", new_target is not None)
                 if new_target is None:
@@ -196,7 +204,7 @@ class Unblock:
                     k: receipt.get(k) for k in ("rail", "network", "facilitator", "tx", "amount", "currency")
                 }}
         finally:
-            clerk.ledger.close()
+            unblock.ledger.close()
 
         with _tracer.start_as_current_span("fix") as span:
             diff = self._apply_fix(incident, new_target)

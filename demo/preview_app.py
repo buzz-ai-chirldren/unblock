@@ -1,7 +1,7 @@
 """Owner preview: the real UNBLOCK code behind one URL, on the mock rail.
 
 This exists so a human can drive the demo from a browser and a terminal before
-we film it. It adds NO business logic: the pipeline, the clerk, the policy and
+we film it. It adds NO business logic: the pipeline, the unblock, the policy and
 the approval API are imported and run exactly as they ship. What is new here is
 a thin operator surface -- run, reset, list, inspect, decide -- plus the guards
 that make a temporary public URL safe:
@@ -21,9 +21,9 @@ that make a temporary public URL safe:
   * a rate limit shared by the whole preview, tighter on the mutating routes.
 
 Run:
-  CLERK_PREVIEW_TOKEN=<token> uv run uvicorn demo.preview_app:app --port 8410
+  UNBLOCK_PREVIEW_TOKEN=<token> uv run uvicorn demo.preview_app:app --port 8410
 Env:
-  CLERK_PREVIEW_TOKEN   required, the owner's bearer token
+  UNBLOCK_PREVIEW_TOKEN   required, the owner's bearer token
   PREVIEW_TTL_HOURS     default 12
   PREVIEW_RUN_DIR       scratch dir, default <tmp>/unblock-preview-run.
                         Must be outside the repository.
@@ -50,17 +50,17 @@ from fastapi.responses import (
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
-from clerk.approval_api import create_app  # noqa: E402
-from clerk.jobs import Clerk  # noqa: E402
-from clerk.ledger import Ledger  # noqa: E402
-from clerk.policy import Policy  # noqa: E402
-from clerk.rails import FileRail  # noqa: E402
-from unblock import Incident, IntelOffer, Unblock, detect  # noqa: E402
+from unblock.approval_api import create_app  # noqa: E402
+from unblock import Unblock  # noqa: E402
+from unblock import Ledger  # noqa: E402
+from unblock.policy import Policy  # noqa: E402
+from unblock.rails import FileRail  # noqa: E402
+from unblock.demo_pipeline import Incident, IncidentPipeline, IntelOffer, detect  # noqa: E402
 
 # --- guards ----------------------------------------------------------------
 
 FORBIDDEN_ENV = (
-    "BEDROCK_KEY_FILE", "CLERK_WALLET_FILE", "AWS_ACCESS_KEY_ID",
+    "BEDROCK_KEY_FILE", "UNBLOCK_WALLET_FILE", "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "ANTHROPIC_API_KEY",
     "GITHUB_TOKEN", "GH_TOKEN",
 )
@@ -82,9 +82,9 @@ def _assert_offline() -> None:
 
 _assert_offline()
 
-TOKEN = os.environ.get("CLERK_PREVIEW_TOKEN") or ""
+TOKEN = os.environ.get("UNBLOCK_PREVIEW_TOKEN") or ""
 if len(TOKEN) < 24:
-    raise RuntimeError("CLERK_PREVIEW_TOKEN must be set and at least 24 chars")
+    raise RuntimeError("UNBLOCK_PREVIEW_TOKEN must be set and at least 24 chars")
 
 # Flipped by the first successful ?t= redemption. In-process only: a restart
 # re-opens the bootstrap link, which is the behaviour we want when a preview is
@@ -139,7 +139,7 @@ FREE_SOURCES = {UNREVIEWED: QUARANTINED}
 
 SCENARIOS = {
     # label -> (offer, what the human should expect to see)
-    "allow": (OFFER, "under the cap: the clerk pays on the mock rail, no human needed"),
+    "allow": (OFFER, "under the cap: UNBLOCK pays on the mock rail, no human needed"),
     "ask-over-cap": (BIG_OFFER, "$0.50 exceeds the $0.10 cap: parks for approval"),
     "ask-unknown-merchant": (UNKNOWN_OFFER, "merchant not allowlisted: parks for approval"),
 }
@@ -158,20 +158,20 @@ def _rail() -> FileRail:
     return FileRail(RUN_DIR / "rail.db", paid_body=INTEL_RECORD)
 
 
-def _clerk_factory():
+def _unblock_factory():
     # Reading the ledger before anything has been run is a normal first move
     # for a human poking at the preview; sqlite will not create a database in
     # a directory that does not exist yet.
     RUN_DIR.mkdir(parents=True, exist_ok=True)
-    return Clerk(Ledger(RUN_DIR / "ledger.db"), POLICY, _rail())
+    return Unblock(Ledger(RUN_DIR / "ledger.db"), POLICY, _rail())
 
 
 def _pipeline(offer: IntelOffer) -> Unblock:
     policy = POLICY
-    return Unblock(
+    return IncidentPipeline(
         site_dir=_site(),
         allowed_file="release.md",
-        clerk_factory=lambda: Clerk(Ledger(RUN_DIR / "ledger.db"), policy, _rail()),
+        unblock_factory=lambda: Unblock(Ledger(RUN_DIR / "ledger.db"), policy, _rail()),
         offer=offer,
         pr_dir=RUN_DIR / "prs",
         free_sources=FREE_SOURCES,
@@ -208,7 +208,7 @@ app = FastAPI(title="UNBLOCK owner preview")
 
 # The real approval API, unmodified, under its own prefix. Its own bearer
 # token is the same one, so the terminal only ever carries one secret.
-approval = create_app(_clerk_factory, tokens={"owner": TOKEN})
+approval = create_app(_unblock_factory, tokens={"owner": TOKEN})
 app.mount("/approval", approval)
 
 # The real x402 merchant, so the 402 challenge shown here is the genuine
@@ -410,7 +410,7 @@ def merchant_challenge(broken_url: str = UNREVIEWED, price: str = "0.05") -> dic
 def analysis(job_id: str) -> dict:
     """The record this job actually paid for, read back out of the ledger.
 
-    Not a copy of the fixture: the clerk stores what the rail returned, and
+    Not a copy of the fixture: UNBLOCK stores what the rail returned, and
     `pipeline._replacement_from` is handed exactly this object. Without it the
     screen claims a threat report was bought while nothing on the page ever
     shows one - the report's whole value is that it names what the package was
@@ -419,13 +419,13 @@ def analysis(job_id: str) -> dict:
     Empty when nothing was bought, which is the honest state of the rejected
     path: you do not have the analysis, because you did not buy it.
     """
-    clerk = _clerk_factory()
+    unblock = _unblock_factory()
     try:
-        job = clerk.ledger.job(job_id)
+        job = unblock.ledger.job(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="unknown job")
-        invoice = clerk.ledger.invoice_row(job["merchant"] or "", job["invoice_id"] or "")
-        receipt = clerk.ledger.receipt(invoice) if invoice else None
+        invoice = unblock.ledger.invoice_row(job["merchant"] or "", job["invoice_id"] or "")
+        receipt = unblock.ledger.receipt(invoice) if invoice else None
         if not receipt or not receipt.get("resource"):
             return {"purchased": False, "analysis": None}
         try:
@@ -434,15 +434,15 @@ def analysis(job_id: str) -> dict:
             return {"purchased": False, "analysis": None}
         return {"purchased": True, "analysis": record}
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
 
 
 @app.get("/api/jobs")
 def jobs() -> list[dict]:
     """Every job in the preview ledger, newest first."""
-    clerk = _clerk_factory()
+    unblock = _unblock_factory()
     try:
-        rows = clerk.ledger.conn.execute(
+        rows = unblock.ledger.conn.execute(
             "SELECT job_id, state, merchant, invoice_id FROM jobs ORDER BY rowid DESC"
         ).fetchall()
         return [
@@ -450,7 +450,7 @@ def jobs() -> list[dict]:
             for r in rows
         ]
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
 
 
 @app.get("/api/pr")

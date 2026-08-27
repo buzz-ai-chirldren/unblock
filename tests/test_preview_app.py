@@ -35,10 +35,10 @@ JOB = "unblock-7937bef067a1"
 @pytest.fixture
 def preview(tmp_path, monkeypatch):
     """A fresh preview module per test, with its scratch dir in tmp_path."""
-    for name in ("BEDROCK_KEY_FILE", "CLERK_WALLET_FILE", "AWS_ACCESS_KEY_ID",
+    for name in ("BEDROCK_KEY_FILE", "UNBLOCK_WALLET_FILE", "AWS_ACCESS_KEY_ID",
                  "AWS_SECRET_ACCESS_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("CLERK_PREVIEW_TOKEN", TOKEN)
+    monkeypatch.setenv("UNBLOCK_PREVIEW_TOKEN", TOKEN)
     monkeypatch.setenv("PREVIEW_TTL_HOURS", "12")
     monkeypatch.setenv("PREVIEW_RUN_DIR", str(tmp_path / "preview_run"))
     sys.modules.pop("demo.preview_app", None)
@@ -59,16 +59,16 @@ def auth(token: str = TOKEN) -> dict:
 # -- startup guard ----------------------------------------------------------
 
 def test_refuses_to_start_holding_money_credentials(monkeypatch):
-    monkeypatch.setenv("CLERK_PREVIEW_TOKEN", TOKEN)
-    monkeypatch.setenv("CLERK_WALLET_FILE", "/tmp/wallet.json")
+    monkeypatch.setenv("UNBLOCK_PREVIEW_TOKEN", TOKEN)
+    monkeypatch.setenv("UNBLOCK_WALLET_FILE", "/tmp/wallet.json")
     sys.modules.pop("demo.preview_app", None)
     with pytest.raises(RuntimeError, match="credentials"):
         importlib.import_module("demo.preview_app")
-    monkeypatch.delenv("CLERK_WALLET_FILE")
+    monkeypatch.delenv("UNBLOCK_WALLET_FILE")
 
 
 def test_refuses_a_short_token(monkeypatch):
-    monkeypatch.setenv("CLERK_PREVIEW_TOKEN", "short")
+    monkeypatch.setenv("UNBLOCK_PREVIEW_TOKEN", "short")
     sys.modules.pop("demo.preview_app", None)
     with pytest.raises(RuntimeError, match="24 chars"):
         importlib.import_module("demo.preview_app")
@@ -299,7 +299,7 @@ def test_reading_the_ledger_before_any_run_is_fine(client):
 # -- runtime state never touches the repository -----------------------------
 
 def test_the_default_run_dir_is_outside_the_repo(monkeypatch):
-    monkeypatch.setenv("CLERK_PREVIEW_TOKEN", TOKEN)
+    monkeypatch.setenv("UNBLOCK_PREVIEW_TOKEN", TOKEN)
     monkeypatch.delenv("PREVIEW_RUN_DIR", raising=False)
     sys.modules.pop("demo.preview_app", None)
     module = importlib.import_module("demo.preview_app")
@@ -307,7 +307,7 @@ def test_the_default_run_dir_is_outside_the_repo(monkeypatch):
 
 
 def test_a_run_dir_inside_the_repo_is_refused(monkeypatch):
-    monkeypatch.setenv("CLERK_PREVIEW_TOKEN", TOKEN)
+    monkeypatch.setenv("UNBLOCK_PREVIEW_TOKEN", TOKEN)
     monkeypatch.setenv("PREVIEW_RUN_DIR", str(REPO / "demo" / "somewhere"))
     sys.modules.pop("demo.preview_app", None)
     with pytest.raises(RuntimeError, match="outside the repository"):
@@ -720,11 +720,11 @@ def served(tmp_path):
 
     env = {
         **os.environ,
-        "CLERK_PREVIEW_TOKEN": TOKEN,
+        "UNBLOCK_PREVIEW_TOKEN": TOKEN,
         "PREVIEW_RUN_DIR": str(tmp_path / "run"),
         "PREVIEW_TTL_HOURS": "1",
     }
-    for name in ("BEDROCK_KEY_FILE", "CLERK_WALLET_FILE", "AWS_ACCESS_KEY_ID"):
+    for name in ("BEDROCK_KEY_FILE", "UNBLOCK_WALLET_FILE", "AWS_ACCESS_KEY_ID"):
         env.pop(name, None)
 
     server = subprocess.Popen(
@@ -826,12 +826,12 @@ def test_the_paid_record_still_passes_strict_validation(client):
     import sys as _sys
 
     _sys.path.insert(0, str(REPO / "src"))
-    from unblock.pipeline import INTEL_FIELDS, Unblock
+    from unblock.demo_pipeline import INTEL_FIELDS, IncidentPipeline
 
     entry = _json.loads((REPO / "fixtures/preview_intel.json").read_text())[
         "vendor/quickparse-0.4.1.md"]
     assert set(entry) == set(INTEL_FIELDS)
-    assert Unblock._replacement_from(
+    assert IncidentPipeline._replacement_from(
         {"resource": _json.dumps(entry)}, "vendor/quickparse-0.4.1.md"
     ) == "vendor/quickparse-0.4.3.md"
 

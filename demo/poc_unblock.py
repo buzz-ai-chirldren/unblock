@@ -26,12 +26,12 @@ from strands import Agent, tool  # noqa: E402
 
 from model_provider import build_model  # noqa: E402
 
-from clerk.jobs import Clerk  # noqa: E402
+from unblock import Unblock  # noqa: E402
 from unblock.tracing import configure_tracing  # noqa: E402
-from clerk.ledger import Ledger  # noqa: E402
-from clerk.policy import Policy  # noqa: E402
-from clerk.rails import FileRail  # noqa: E402
-from unblock import Incident, IntelOffer, Unblock, detect  # noqa: E402
+from unblock import Ledger  # noqa: E402
+from unblock.policy import Policy  # noqa: E402
+from unblock.rails import FileRail  # noqa: E402
+from unblock.demo_pipeline import Incident, IncidentPipeline, IntelOffer, detect  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 RUN_DIR = REPO / "demo" / "unblock_run"
@@ -72,9 +72,9 @@ if not site.exists():
     shutil.copytree(REPO / "fixtures" / "site", site)
 
 if args.rail == "x402":
-    from clerk.x402_rail import X402Rail
+    from unblock.x402_rail import X402Rail
 
-    wallet = json.load(open(os.environ["CLERK_WALLET_FILE"]))
+    wallet = json.load(open(os.environ["UNBLOCK_WALLET_FILE"]))
     rail = X402Rail(private_key=wallet["private_key"])
     offer = IntelOffer("local-x402-merchant", Decimal("0.05"),
                        url="http://127.0.0.1:8402/intel")
@@ -91,10 +91,10 @@ POLICY = Policy(
     merchant_allowlist=frozenset({offer.merchant}),
 )
 
-pipeline = Unblock(
+pipeline = IncidentPipeline(
     site_dir=site,
     allowed_file="index.md",
-    clerk_factory=lambda: Clerk(Ledger(RUN_DIR / "ledger.db"), POLICY, rail),
+    unblock_factory=lambda: Unblock(Ledger(RUN_DIR / "ledger.db"), POLICY, rail),
     offer=offer,
     pr_dir=RUN_DIR / "prs",
 )
@@ -117,7 +117,7 @@ def scan_site() -> str:
 @tool
 def unblock_incident(incident_id: str) -> str:
     """Repair one incident end-to-end: buy link intelligence through the
-    allowance clerk (policy may park it for human approval), fix the single
+    UNBLOCK (policy may park it for human approval), fix the single
     allowlisted file, verify, and emit a PR artifact. Returns the pipeline's
     verdict verbatim as JSON; never claim success beyond what it says.
 

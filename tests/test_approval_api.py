@@ -24,11 +24,11 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from clerk.approval_api import create_app  # noqa: E402
-from clerk.jobs import Clerk  # noqa: E402
-from clerk.ledger import Ledger  # noqa: E402
-from clerk.policy import Invoice, Policy  # noqa: E402
-from clerk.rails import FileRail, MockRail  # noqa: E402
+from unblock.approval_api import create_app  # noqa: E402
+from unblock import Unblock  # noqa: E402
+from unblock import Ledger  # noqa: E402
+from unblock.policy import Invoice, Policy  # noqa: E402
+from unblock.rails import FileRail, MockRail  # noqa: E402
 
 POLICY = Policy(
     currency="USDC",
@@ -55,24 +55,24 @@ def decision_url(job_id):
 
 @pytest.fixture
 def env(tmp_path):
-    """One shared rail (the money oracle) + a per-request clerk factory,
+    """One shared rail (the money oracle) + a per-request UNBLOCK factory,
     exactly how the ASGI server uses it across worker threads."""
     db = tmp_path / "ledger.db"
     rail = MockRail()
 
     def factory():
-        return Clerk(Ledger(db), POLICY, rail)
+        return Unblock(Ledger(db), POLICY, rail)
 
     client = TestClient(create_app(factory, tokens=TOKENS), raise_server_exceptions=False)
     return client, factory, rail
 
 
 def park_job(factory, invoice=BIG, job_id="job-ask-1"):
-    clerk = factory()
+    unblock = factory()
     try:
-        assert clerk.run_job(job_id, invoice, "fetch premium") == "WAITING_APPROVAL"
+        assert unblock.run_job(job_id, invoice, "fetch premium") == "WAITING_APPROVAL"
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
 
 
 # -- public contract shape ------------------------------------------------------
@@ -94,7 +94,7 @@ def test_only_v1_routes_and_external_verbs(env):
 # -- auth is fail-closed, actor is the authenticated principal -----------------
 
 def test_app_refuses_ambiguous_or_missing_auth_config(monkeypatch):
-    monkeypatch.delenv("CLERK_APPROVAL_TOKENS", raising=False)
+    monkeypatch.delenv("UNBLOCK_APPROVAL_TOKENS", raising=False)
     bad_configs = [
         None,                                          # nothing configured
         {},                                            # empty map
@@ -129,15 +129,15 @@ def test_actor_comes_from_credential_not_body(env):
                     headers={"Authorization": f"Bearer {TOKENS['auditor']}"},
                     json={"action": "REJECT"})
     assert r.status_code == 200
-    clerk = factory()
+    unblock = factory()
     try:
-        row = clerk.ledger.conn.execute(
+        row = unblock.ledger.conn.execute(
             "SELECT actor FROM approvals WHERE invoice_id=?", (BIG.invoice_id,)
         ).fetchone()
         assert row == ("auditor",)
-        assert {e["actor"] for e in clerk.ledger.events("job-ask-1")} == {"auditor"}
+        assert {e["actor"] for e in unblock.ledger.events("job-ask-1")} == {"auditor"}
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
 
 
 # -- the full human loop: list -> decide -> job completes ----------------------
@@ -201,33 +201,33 @@ def test_resend_is_idempotent_and_flip_is_conflict(env):
     assert "REJECTED" in flip.json()["detail"]  # the stored decision, not the request's
     assert rail.settled == []
 
-    clerk = factory()
+    unblock = factory()
     try:
-        trail = [(e["action"], e["outcome"]) for e in clerk.ledger.events("job-ask-1")]
+        trail = [(e["action"], e["outcome"]) for e in unblock.ledger.events("job-ask-1")]
         assert trail == [
             ("REJECTED", "recorded"), ("RESUME", "resumed"),
             ("REJECTED", "idempotent-noop"), ("RESUME", "resumed"),
             ("APPROVED", "conflict:stored=REJECTED"),
         ]
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
 
 
 def test_first_decision_requires_waiting_job(env):
     client, factory, rail = env
-    clerk = factory()
+    unblock = factory()
     try:
-        assert clerk.run_job("job-done", SMALL, "auto-paid work") == "DONE"
+        assert unblock.run_job("job-done", SMALL, "auto-paid work") == "DONE"
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
     r = client.post(decision_url("job-done"), headers=AUTH, json={"action": "REJECT"})
     assert r.status_code == 409  # no after-the-fact decisions on settled work
-    clerk = factory()
+    unblock = factory()
     try:
-        assert clerk.ledger.decision(SMALL) is None  # nothing was recorded
-        assert [e["outcome"] for e in clerk.ledger.events("job-done")] == ["refused-state"]
+        assert unblock.ledger.decision(SMALL) is None  # nothing was recorded
+        assert [e["outcome"] for e in unblock.ledger.events("job-done")] == ["refused-state"]
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
     assert rail.settled == ["api.example/inv-ok-1"]  # unchanged
 
 
@@ -235,7 +235,7 @@ def test_first_decision_requires_waiting_job(env):
 
 def _decision_worker(db, rail_db, job_id, action, results):
     def factory():
-        return Clerk(Ledger(db), POLICY, FileRail(rail_db))
+        return Unblock(Ledger(db), POLICY, FileRail(rail_db))
 
     client = TestClient(create_app(factory, tokens=TOKENS), raise_server_exceptions=False)
     r = client.post(decision_url(job_id), headers=AUTH, json={"action": action})
@@ -259,7 +259,7 @@ def _spawn_deciders(db, rail_db, job_id, actions):
 
 def test_process_race_approve_vs_reject_one_winner_loser_409(tmp_path):
     db, rail_db = str(tmp_path / "ledger.db"), str(tmp_path / "rail.db")
-    park_job(lambda: Clerk(Ledger(db), POLICY, FileRail(rail_db)), job_id="job-race")
+    park_job(lambda: Unblock(Ledger(db), POLICY, FileRail(rail_db)), job_id="job-race")
 
     results = _spawn_deciders(db, rail_db, "job-race", ["APPROVE", "REJECT"])
     assert sorted(r[1] for r in results) == [200, 409]  # exactly one winner
@@ -276,7 +276,7 @@ def test_process_race_approve_vs_reject_one_winner_loser_409(tmp_path):
 
 def test_process_race_same_approve_settles_once(tmp_path):
     db, rail_db = str(tmp_path / "ledger.db"), str(tmp_path / "rail.db")
-    park_job(lambda: Clerk(Ledger(db), POLICY, FileRail(rail_db)), job_id="job-race")
+    park_job(lambda: Unblock(Ledger(db), POLICY, FileRail(rail_db)), job_id="job-race")
 
     results = _spawn_deciders(db, rail_db, "job-race", ["APPROVE", "APPROVE"])
     assert [r[1] for r in results] == [200, 200]  # same action never conflicts
@@ -288,7 +288,7 @@ def test_process_race_same_approve_settles_once(tmp_path):
 
     # A parked loser (lost the payment race) recovers by the same resend path.
     def factory():
-        return Clerk(Ledger(db), POLICY, rail)
+        return Unblock(Ledger(db), POLICY, rail)
     client = TestClient(create_app(factory, tokens=TOKENS), raise_server_exceptions=False)
     r = client.post(decision_url("job-race"), headers=AUTH, json={"action": "APPROVE"})
     assert r.json()["state"] == "DONE"
@@ -297,14 +297,14 @@ def test_process_race_same_approve_settles_once(tmp_path):
 
 # -- real process crash between decision commit and resume ---------------------
 
-class _CrashBeforeResumeClerk(Clerk):
+class _CrashBeforeResume(Unblock):
     def resume(self, job_id):
         os._exit(17)  # decision + evidence are committed; resume never starts
 
 
 def _crash_decider(db, rail_db):
     def factory():
-        return _CrashBeforeResumeClerk(Ledger(db), POLICY, FileRail(rail_db))
+        return _CrashBeforeResume(Ledger(db), POLICY, FileRail(rail_db))
 
     client = TestClient(create_app(factory, tokens=TOKENS), raise_server_exceptions=False)
     client.post(decision_url("job-crash"), headers=AUTH, json={"action": "APPROVE"})
@@ -312,7 +312,7 @@ def _crash_decider(db, rail_db):
 
 def test_process_crash_after_decision_commit_recovers_by_resend(tmp_path):
     db, rail_db = str(tmp_path / "ledger.db"), str(tmp_path / "rail.db")
-    park_job(lambda: Clerk(Ledger(db), POLICY, FileRail(rail_db)), job_id="job-crash")
+    park_job(lambda: Unblock(Ledger(db), POLICY, FileRail(rail_db)), job_id="job-crash")
 
     p = multiprocessing.Process(target=_crash_decider, args=(db, rail_db))
     p.start()
@@ -328,7 +328,7 @@ def test_process_crash_after_decision_commit_recovers_by_resend(tmp_path):
 
     # Recovery = a NEW process re-sends the SAME decision over fresh connections.
     def factory():
-        return Clerk(Ledger(db), POLICY, rail)
+        return Unblock(Ledger(db), POLICY, rail)
     client = TestClient(create_app(factory, tokens=TOKENS), raise_server_exceptions=False)
     r = client.post(decision_url("job-crash"), headers=AUTH, json={"action": "APPROVE"}).json()
     assert (r["decided"], r["state"]) == (False, "DONE")
@@ -340,7 +340,7 @@ def test_resume_failure_is_evidenced_and_recoverable(env, tmp_path):
 
     failed = []
 
-    class FailResumeOnce(Clerk):
+    class FailResumeOnce(Unblock):
         def resume(self, job_id):
             if not failed:
                 failed.append(job_id)
@@ -359,12 +359,12 @@ def test_resume_failure_is_evidenced_and_recoverable(env, tmp_path):
     assert "token" not in r.text and "RuntimeError" not in r.text  # no internals leak
     assert rail.settled == []
 
-    clerk = factory()
+    unblock = factory()
     try:
-        trail = [e["outcome"] for e in clerk.ledger.events("job-ask-1")]
+        trail = [e["outcome"] for e in unblock.ledger.events("job-ask-1")]
         assert trail == ["recorded", "resume-failed:RuntimeError"]
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
 
     # Same resend recovery path as a crash.
     r = flaky_client.post(decision_url("job-ask-1"), headers=AUTH, json={"action": "APPROVE"}).json()
@@ -449,12 +449,12 @@ def test_malformed_input_is_4xx_without_state_change(env):
         for token in TOKENS.values():
             assert token not in r.text
     # No decision, no payment, still parked.
-    clerk = factory()
+    unblock = factory()
     try:
-        assert clerk.ledger.decision(BIG) is None
-        assert clerk.ledger.job("job-ask-1")["state"] == "WAITING_APPROVAL"
+        assert unblock.ledger.decision(BIG) is None
+        assert unblock.ledger.job("job-ask-1")["state"] == "WAITING_APPROVAL"
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
 
 
 def test_oversized_body_is_413_even_without_content_length(env):
@@ -470,12 +470,12 @@ def test_oversized_body_is_413_even_without_content_length(env):
                     content=iter([b"x" * 1024] * 17))
     assert r.status_code == 413
     # State unchanged either way.
-    clerk = factory()
+    unblock = factory()
     try:
-        assert clerk.ledger.decision(BIG) is None
-        assert clerk.ledger.job("job-ask-1")["state"] == "WAITING_APPROVAL"
+        assert unblock.ledger.decision(BIG) is None
+        assert unblock.ledger.job("job-ask-1")["state"] == "WAITING_APPROVAL"
     finally:
-        clerk.ledger.close()
+        unblock.ledger.close()
 
 
 def test_unknown_job_is_404(env):

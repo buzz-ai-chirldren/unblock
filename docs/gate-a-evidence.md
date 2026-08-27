@@ -1,4 +1,13 @@
-# Gate A Evidence — Allowance Clerk
+# Gate A Evidence — UNBLOCK (recorded as "Allowance Clerk")
+
+> **Names below are the ones that were in the code when these runs happened.**
+> The control layer is now `unblock.Unblock` and the distribution is `unblock`;
+> `CLERK_WALLET_FILE` is now `UNBLOCK_WALLET_FILE`, and `src/clerk/` is now
+> `src/unblock/`. The commands and class names are left exactly as they were
+> executed at commit `93f177d` — this file is a record of what was measured, and
+> editing the commands would make it a record of something nobody ran. To
+> reproduce today, substitute the names above.
+
 
 Formal verdict: **PASS** (independent audit by Codex, 2026-08-26, MyTeam channel).
 Audited commit: `93f177de03b3d0a9f4084b71ebc83371d974a4c3` (tag: `gate-a-pass`).

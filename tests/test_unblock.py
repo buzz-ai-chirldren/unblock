@@ -23,12 +23,12 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from clerk.approval_api import create_app  # noqa: E402
-from clerk.jobs import Clerk  # noqa: E402
-from clerk.ledger import Ledger  # noqa: E402
-from clerk.policy import Policy  # noqa: E402
-from clerk.rails import FileRail, MockRail  # noqa: E402
-from unblock import Incident, IntelOffer, Unblock, detect  # noqa: E402
+from unblock.approval_api import create_app  # noqa: E402
+from unblock import Unblock  # noqa: E402
+from unblock import Ledger  # noqa: E402
+from unblock.policy import Policy  # noqa: E402
+from unblock.rails import FileRail, MockRail  # noqa: E402
+from unblock.demo_pipeline import Incident, IncidentPipeline, IntelOffer, detect  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "site"
 BROKEN_LINK = "guides/install.md"
@@ -67,10 +67,10 @@ def make_pipeline(tmp_path, site, rail, offer=CHEAP, free_sources=None):
     db = tmp_path / "ledger.db"
 
     def factory():
-        return Clerk(Ledger(db), POLICY, rail)
+        return Unblock(Ledger(db), POLICY, rail)
 
-    return Unblock(site, "index.md", factory, offer, tmp_path / "prs",
-                   free_sources=free_sources), factory
+    return IncidentPipeline(site, "index.md", factory, offer, tmp_path / "prs",
+                            free_sources=free_sources), factory
 
 
 # -- detection -----------------------------------------------------------------
@@ -124,7 +124,7 @@ def test_rerun_is_idempotent(tmp_path):
     assert len(list((tmp_path / "prs").iterdir())) == 1
 
 
-class _CrashAfterPay(Unblock):
+class _CrashAfterPay(IncidentPipeline):
     def _apply_fix(self, incident, new_target):
         os._exit(17)  # payment settled and recorded; fixer never ran
 
@@ -134,7 +134,7 @@ def _crash_worker(site, tmp_dir, rail_db):
     db = tmp_path / "ledger.db"
 
     def factory():
-        return Clerk(Ledger(db), POLICY, FileRail(rail_db, paid_body=INTEL_BODY))
+        return Unblock(Ledger(db), POLICY, FileRail(rail_db, paid_body=INTEL_BODY))
 
     pipeline = _CrashAfterPay(Path(site), "index.md", factory, CHEAP, tmp_path / "prs")
     pipeline.run(detect(Path(site))[0])

@@ -12,10 +12,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from clerk.jobs import Clerk  # noqa: E402
-from clerk.ledger import Ledger  # noqa: E402
-from clerk.policy import Decision, Invoice, Policy, evaluate  # noqa: E402
-from clerk.rails import MockRail  # noqa: E402
+from unblock import Unblock  # noqa: E402
+from unblock import Ledger  # noqa: E402
+from unblock.policy import Decision, Invoice, Policy, evaluate  # noqa: E402
+from unblock.rails import MockRail  # noqa: E402
 
 POLICY = Policy(
     currency="USDC",
@@ -30,9 +30,9 @@ BIG = Invoice("inv-002", "api.example", Decimal("20.00"), "USDC")
 UNKNOWN = Invoice("inv-003", "stranger.example", Decimal("0.05"), "USDC")
 
 
-def make_clerk(tmp_path, rail=None):
+def make_unblock(tmp_path, rail=None):
     rail = rail or MockRail()
-    return Clerk(Ledger(tmp_path / "ledger.db"), POLICY, rail), rail
+    return Unblock(Ledger(tmp_path / "ledger.db"), POLICY, rail), rail
 
 
 # -- policy is deterministic and pure ----------------------------------------
@@ -49,46 +49,46 @@ def test_policy_verdicts():
 # -- ALLOW path: pay once, job completes -------------------------------------
 
 def test_allow_pays_once_and_completes(tmp_path):
-    clerk, rail = make_clerk(tmp_path)
-    assert clerk.run_job("job-1", SMALL, "fetch premium data") == "DONE"
+    unblock, rail = make_unblock(tmp_path)
+    assert unblock.run_job("job-1", SMALL, "fetch premium data") == "DONE"
     assert rail.settled == ["api.example/inv-001"]
-    assert clerk.ledger.receipt(SMALL)["tx"].startswith("mock-")
+    assert unblock.ledger.receipt(SMALL)["tx"].startswith("mock-")
 
 
 # -- idempotency: sequential re-run never pays twice ---------------------------
 
 def test_rerun_same_invoice_is_noop(tmp_path):
-    clerk, rail = make_clerk(tmp_path)
-    assert clerk.run_job("job-1", SMALL, "work") == "DONE"
-    assert clerk.run_job("job-2", SMALL, "same invoice, new job") == "DONE"
+    unblock, rail = make_unblock(tmp_path)
+    assert unblock.run_job("job-1", SMALL, "work") == "DONE"
+    assert unblock.run_job("job-2", SMALL, "same invoice, new job") == "DONE"
     assert rail.settled == ["api.example/inv-001"]  # exactly one settlement
 
 
 # -- ASK path: durable wait -> approve -> resume same job ----------------------
 
 def test_ask_approve_resume(tmp_path):
-    clerk, rail = make_clerk(tmp_path)
-    assert clerk.run_job("job-big", BIG, "renew domain") == "WAITING_APPROVAL"
+    unblock, rail = make_unblock(tmp_path)
+    assert unblock.run_job("job-big", BIG, "renew domain") == "WAITING_APPROVAL"
     assert rail.settled == []  # nothing moved
-    # restart: a fresh Clerk over the same ledger file still sees the parked job
-    clerk2, rail2 = Clerk(clerk.ledger, POLICY, rail), rail
-    assert clerk2.ledger.job("job-big")["state"] == "WAITING_APPROVAL"
-    assert clerk2.resume("job-big") == "WAITING_APPROVAL"  # no approval yet: stays parked
-    assert clerk2.approve(BIG, actor="akiyuki") is True
-    assert clerk2.approve(BIG, actor="akiyuki") is False  # duplicate approval is a no-op
-    assert clerk2.resume("job-big") == "DONE"
+    # restart: a fresh Unblock over the same ledger file still sees the parked job
+    unblock2, rail2 = Unblock(unblock.ledger, POLICY, rail), rail
+    assert unblock2.ledger.job("job-big")["state"] == "WAITING_APPROVAL"
+    assert unblock2.resume("job-big") == "WAITING_APPROVAL"  # no approval yet: stays parked
+    assert unblock2.approve(BIG, actor="akiyuki") is True
+    assert unblock2.approve(BIG, actor="akiyuki") is False  # duplicate approval is a no-op
+    assert unblock2.resume("job-big") == "DONE"
     assert rail.settled == ["api.example/inv-002"]
-    assert clerk2.resume("job-big") == "DONE"  # resuming a done job is safe
+    assert unblock2.resume("job-big") == "DONE"  # resuming a done job is safe
     assert rail.settled == ["api.example/inv-002"]
 
 
 # -- crash window: PAYING row is never auto re-paid ---------------------------
 
 def test_paying_state_is_not_repaid(tmp_path):
-    clerk, rail = make_clerk(tmp_path)
-    clerk.ledger.claim(SMALL)
-    assert clerk.ledger.try_begin_payment(SMALL) is True  # simulate crash right here
-    assert clerk.run_job("job-after-crash", SMALL, "retry after crash") == "WAITING_APPROVAL"
+    unblock, rail = make_unblock(tmp_path)
+    unblock.ledger.claim(SMALL)
+    assert unblock.ledger.try_begin_payment(SMALL) is True  # simulate crash right here
+    assert unblock.run_job("job-after-crash", SMALL, "retry after crash") == "WAITING_APPROVAL"
     assert rail.settled == []  # reconciliation is a human/verifier step, never an auto re-pay
 
 

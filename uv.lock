@@ -133,43 +133,6 @@ wheels = [
 ]
 
 [[package]]
-name = "allowance-clerk"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "eth-account" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "strands-agents", extra = ["anthropic"] },
-    { name = "strands-agents-tools" },
-    { name = "uvicorn" },
-    { name = "x402", extra = ["evm"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-otel = [
-    { name = "aws-opentelemetry-distro" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "eth-account", specifier = ">=0.14.0" },
-    { name = "fastapi", specifier = ">=0.141.1" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "strands-agents", extras = ["anthropic"], specifier = ">=1.53.0" },
-    { name = "strands-agents-tools", specifier = ">=0.8.6" },
-    { name = "uvicorn", specifier = ">=0.52.4" },
-    { name = "x402", extras = ["evm"], specifier = ">=2.20.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
-otel = [{ name = "aws-opentelemetry-distro", specifier = ">=0.19.0" }]
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -3432,6 +3395,43 @@ sdist = { url = "https://files.pythonhosted.org/packages/92/ff/5a28bdfd8c3ebec42
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/6d/b53b99a9f2766d095985947a5782f1702cabb129a34f7a802d7197af832f/tzdata-2026.3-py2.py3-none-any.whl", hash = "sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931", size = 348168, upload-time = "2026-07-10T08:50:36.46Z" },
 ]
+
+[[package]]
+name = "unblock"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "eth-account" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "strands-agents", extra = ["anthropic"] },
+    { name = "strands-agents-tools" },
+    { name = "uvicorn" },
+    { name = "x402", extra = ["evm"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+otel = [
+    { name = "aws-opentelemetry-distro" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "eth-account", specifier = ">=0.14.0" },
+    { name = "fastapi", specifier = ">=0.141.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "strands-agents", extras = ["anthropic"], specifier = ">=1.53.0" },
+    { name = "strands-agents-tools", specifier = ">=0.8.6" },
+    { name = "uvicorn", specifier = ">=0.52.4" },
+    { name = "x402", extras = ["evm"], specifier = ">=2.20.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+otel = [{ name = "aws-opentelemetry-distro", specifier = ">=0.19.0" }]
 
 [[package]]
 name = "urllib3"

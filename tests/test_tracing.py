@@ -15,11 +15,11 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from clerk.jobs import Clerk  # noqa: E402
-from clerk.ledger import Ledger  # noqa: E402
-from clerk.policy import Policy  # noqa: E402
-from clerk.rails import MockRail  # noqa: E402
-from unblock import IntelOffer, Unblock, detect  # noqa: E402
+from unblock import Unblock  # noqa: E402
+from unblock import Ledger  # noqa: E402
+from unblock.policy import Policy  # noqa: E402
+from unblock.rails import MockRail  # noqa: E402
+from unblock.demo_pipeline import IncidentPipeline, IntelOffer, detect  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "site"
 BROKEN = "guides/install.md"
@@ -46,9 +46,10 @@ def run_pipeline(tmp_path):
                     per_invoice_cap=Decimal("1.00"),
                     merchant_allowlist=frozenset({"intel.example"}))
     offer = IntelOffer("intel.example", Decimal("0.05"), url="http://intel.example/intel")
-    pipeline = Unblock(site, "index.md",
-                       lambda: Clerk(Ledger(tmp_path / "ledger.db"), policy, rail),
-                       offer, tmp_path / "prs")
+    pipeline = IncidentPipeline(
+        site, "index.md",
+        lambda: Unblock(Ledger(tmp_path / "ledger.db"), policy, rail),
+        offer, tmp_path / "prs")
     (incident,) = detect(site)
     result = pipeline.run(incident)
     assert result["status"] == "done-paid"
@@ -80,8 +81,8 @@ def test_span_map_and_hygiene(tmp_path):
     # Stage outcomes are recorded.
     by_name = {s.name: s for s in stage_spans}
     assert by_name["detect"].attributes["unblock.still_broken"] is True
-    assert by_name["policy"].attributes["clerk.decision"] == "ALLOW"
-    assert by_name["pay"].attributes["clerk.rail"] == "mock"
+    assert by_name["policy"].attributes["unblock.decision"] == "ALLOW"
+    assert by_name["pay"].attributes["unblock.rail"] == "mock"
     assert by_name["fetch"].attributes["unblock.intel_valid"] is True
     assert by_name["verify"].attributes["unblock.resolved"] is True
 

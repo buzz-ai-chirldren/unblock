@@ -1,4 +1,4 @@
-"""Human approval API over the clerk's durable ASK queue (Gate B boundary).
+"""Human approval API over UNBLOCK's durable ASK queue (Gate B boundary).
 
 Public v1 contract (every route requires `Authorization: Bearer <token>`):
 
@@ -17,10 +17,10 @@ Public v1 contract (every route requires `Authorization: Bearer <token>`):
 External actions APPROVE/REJECT are explicitly mapped to the ledger's terminal
 states APPROVED/REJECTED at this boundary; no other route names or verbs exist.
 
-Threat-model properties (per allowance-clerk-gate-b-threat-model):
+Threat-model properties (per unblock-gate-b-threat-model):
 
 - The actor is the authenticated principal: tokens are configured server-side
-  as an actor->token map (env CLERK_APPROVAL_TOKENS, JSON). Bodies carry no
+  as an actor->token map (env UNBLOCK_APPROVAL_TOKENS, JSON). Bodies carry no
   actor. Startup fails on empty maps, empty names/tokens, or duplicate tokens
   (an ambiguous principal is worse than no server).
 - Decisions target a job_id only; merchant, amount, and digest are read from
@@ -46,7 +46,7 @@ Threat-model properties (per allowance-clerk-gate-b-threat-model):
   compare, tokens never logged, stored, or echoed.
 
 SQLite connections are thread-bound and ASGI servers run handlers on worker
-threads, so the app builds a fresh Ledger/Clerk per request via the injected
+threads, so the app builds a fresh Ledger/Unblock per request via the injected
 factory (fresh-connection safety is proven by the restart tests).
 """
 
@@ -61,10 +61,10 @@ from typing import Callable
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from .jobs import Clerk
+from .controller import Unblock
 from .policy import Invoice
 
-TOKENS_ENV = "CLERK_APPROVAL_TOKENS"  # JSON: {"<actor>": "<token>", ...}
+TOKENS_ENV = "UNBLOCK_APPROVAL_TOKENS"  # JSON: {"<actor>": "<token>", ...}
 BODY_LIMIT = 16 * 1024
 
 # External verb -> internal terminal state. The ONLY place the mapping exists.
@@ -142,7 +142,8 @@ class _BodyLimit:
         await self.app(scope, replay, send)
 
 
-def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None = None) -> FastAPI:
+def create_app(unblock_factory: Callable[[], Unblock],
+               tokens: dict[str, str] | None = None) -> FastAPI:
     if tokens is None:
         tokens = json.loads(os.environ.get(TOKENS_ENV) or "{}")
     if (
@@ -171,14 +172,14 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
     app = FastAPI()
     app.add_middleware(_BodyLimit, limit=BODY_LIMIT)
 
-    def pinned_terms(clerk: Clerk, invoice: Invoice) -> dict:
+    def pinned_terms(controller: Unblock, invoice: Invoice) -> dict:
         return {
             "merchant": invoice.merchant,
             "invoice_id": invoice.invoice_id,
             "amount": str(invoice.amount),
             "currency": invoice.currency,
             "digest": invoice.digest(),
-            "invoice_state": clerk.ledger.state(invoice),
+            "invoice_state": controller.ledger.state(invoice),
         }
 
     @app.get("/v1/approvals")
@@ -187,63 +188,63 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
     ) -> list[dict]:
-        clerk = clerk_factory()
+        controller = unblock_factory()
         try:
             out = []
-            for job in clerk.ledger.waiting_jobs(limit=limit, offset=offset):
-                invoice = clerk.ledger.invoice_row(job["merchant"], job["invoice_id"])
+            for job in controller.ledger.waiting_jobs(limit=limit, offset=offset):
+                invoice = controller.ledger.invoice_row(job["merchant"], job["invoice_id"])
                 if invoice is None:
                     continue
-                decision = clerk.ledger.decision(invoice)
+                decision = controller.ledger.decision(invoice)
                 out.append(
                     {
                         "job_id": job["job_id"],
                         "reason_code": _reason_code(job["payload"].get("why", "")),
-                        **pinned_terms(clerk, invoice),
+                        **pinned_terms(controller, invoice),
                         "decision": decision[0] if decision else None,
                     }
                 )
             return out
         finally:
-            clerk.ledger.close()
+            controller.ledger.close()
 
     @app.get("/v1/approvals/{job_id}")
     def approval_detail(job_id: str, actor: str = Depends(authenticated_actor)) -> dict:
-        clerk = clerk_factory()
+        controller = unblock_factory()
         try:
-            job = clerk.ledger.job(job_id)
+            job = controller.ledger.job(job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="unknown job")
-            invoice = clerk.ledger.invoice_row(job["merchant"] or "", job["invoice_id"] or "")
-            decision = clerk.ledger.decision(invoice) if invoice else None
+            invoice = controller.ledger.invoice_row(job["merchant"] or "", job["invoice_id"] or "")
+            decision = controller.ledger.decision(invoice) if invoice else None
             return {
                 "job_id": job_id,
                 "job_state": job["state"],
                 "reason_code": _reason_code(job["payload"].get("why", "")),
-                **(pinned_terms(clerk, invoice) if invoice else {}),
+                **(pinned_terms(controller, invoice) if invoice else {}),
                 "decision": decision[0] if decision else None,
-                "events": clerk.ledger.events(job_id),
+                "events": controller.ledger.events(job_id),
             }
         finally:
-            clerk.ledger.close()
+            controller.ledger.close()
 
     @app.post("/v1/approvals/{job_id}/decision")
     def decide(job_id: str, req: DecisionRequest, actor: str = Depends(authenticated_actor)) -> dict:
         request_id = uuid.uuid4().hex
         requested = ACTIONS[req.action]  # external verb -> internal terminal state
-        clerk = clerk_factory()
+        controller = unblock_factory()
         try:
-            job = clerk.ledger.job(job_id)
+            job = controller.ledger.job(job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="unknown job")
-            invoice = clerk.ledger.invoice_row(job["merchant"] or "", job["invoice_id"] or "")
+            invoice = controller.ledger.invoice_row(job["merchant"] or "", job["invoice_id"] or "")
             if invoice is None:
                 raise HTTPException(status_code=404, detail="job has no pinned invoice")
             digest = invoice.digest()
-            state_before = f"{job['state']}/{clerk.ledger.state(invoice)}"
+            state_before = f"{job['state']}/{controller.ledger.state(invoice)}"
 
             def event(action: str, outcome: str, state_after: str) -> None:
-                clerk.ledger.record_event(
+                controller.ledger.record_event(
                     request_id, actor, action, outcome, job_id,
                     invoice.merchant, invoice.invoice_id, digest, state_before, state_after,
                 )
@@ -251,7 +252,7 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
             # A FIRST decision is only valid for a parked job. (If a decision
             # already exists, fall through: the atomic insert below loses and
             # we branch on the stored action - the resend/conflict paths.)
-            if clerk.ledger.decision(invoice) is None and job["state"] != "WAITING_APPROVAL":
+            if controller.ledger.decision(invoice) is None and job["state"] != "WAITING_APPROVAL":
                 event(requested, "refused-state", state_before)
                 raise HTTPException(
                     status_code=409,
@@ -260,7 +261,7 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
 
             # The ledger INSERT is the only arbiter; everything below branches
             # on the STORED action, never on what this request asked for.
-            created, effective = clerk.decide(invoice, requested, actor, req.note)
+            created, effective = controller.decide(invoice, requested, actor, req.note)
             if effective != requested:
                 event(requested, f"conflict:stored={effective}", state_before)
                 raise HTTPException(
@@ -270,16 +271,16 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
 
             # Decision and its evidence are durable BEFORE resume runs.
             event(effective, "recorded" if created else "idempotent-noop",
-                  f"{job['state']}/{clerk.ledger.state(invoice)}")
+                  f"{job['state']}/{controller.ledger.state(invoice)}")
             try:
-                state = clerk.resume(job_id)
+                state = controller.resume(job_id)
             except Exception as e:
                 event("RESUME", f"resume-failed:{type(e).__name__}", state_before)
                 raise HTTPException(
                     status_code=500,
                     detail="resume failed after the decision was recorded; re-send the same decision to recover",
                 )
-            event("RESUME", "resumed", f"{state}/{clerk.ledger.state(invoice)}")
+            event("RESUME", "resumed", f"{state}/{controller.ledger.state(invoice)}")
             return {
                 "request_id": request_id,
                 "job_id": job_id,
@@ -288,6 +289,6 @@ def create_app(clerk_factory: Callable[[], Clerk], tokens: dict[str, str] | None
                 "state": state,
             }
         finally:
-            clerk.ledger.close()
+            controller.ledger.close()
 
     return app

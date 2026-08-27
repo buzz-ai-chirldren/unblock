@@ -1,5 +1,5 @@
 """X402Rail: real settlement over the x402 protocol (exact scheme, EIP-3009
-USDC) - the clerk's only rail that moves real value.
+USDC) - UNBLOCK's only rail that moves real value.
 
 Contract with the state machine (same as every rail):
   - pay() is called ONLY after policy allowed (or a human approved) the exact
@@ -11,7 +11,7 @@ Contract with the state machine (same as every rail):
     signature - the request simply fails with 402 and we raise RailError
     (safe: nothing was signed, nothing moved).
   - lookup() answers crash-window reconciliation from the chain itself: scan
-    recent USDC Transfer logs from our payer address. The clerk never re-pays
+    recent USDC Transfer logs from our payer address. UNBLOCK never re-pays
     a PAYING row on its own.
 
 The facilitator submits transferWithAuthorization on-chain and pays gas, so
