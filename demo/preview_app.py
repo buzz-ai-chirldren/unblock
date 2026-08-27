@@ -727,13 +727,15 @@ UI_HTML = r"""<!doctype html>
 </main>
 <script>
 const JA = {
-  badge:"デモ・実際のお金は動きません", lang:"English",
+  badge:"デモ用fixture・実際のお金は動きません・NOT BROADCAST", lang:"English",
   title:"AIのお金の使い方を守る、ローカルな防火壁。",
   sub:"未評価の部品を見つけた → 少額で調べた → 安全に直した。",
-  cta:"やってみる", cta2:"高かったら？", again:"もう一度",
-  n1:"未評価", n2:"解析", n3:"予算内", n3_ask:"要確認",
+  cta:"やってみる", cta2:"上限超過なら", again:"もう一度",
+  n1:"未評価", n2:"解析", n3:"予算内", n3_ask:"ASK・上限超過",
   n4:"支払い済", n5:"安全版へ", n5_off:"隔離",
-  decide:"$0.50 の解析を買いますか？", approve:"買う", reject:"買わない",
+  decide:"UNBLOCK policy: ASK — $0.50 は 1 件あたり上限 $0.10 を超えています。",
+  decide_sub:"agent は止まっています。再開できるのは人間の決定だけです。",
+  approve:"承認（支払う）", reject:"却下（支払わない）",
   k_paid:"支払い", k_left:"残り", k_pr:"証拠", nopay:"なし",
   k_amount:"金額", k_shop:"相手", k_settle:"決済", k_verdict:"判定",
   k_observed:"送信先", k_cleared:"安全版", k_action:"決定",
@@ -750,13 +752,15 @@ const JA = {
   raw:"生JSON",
 };
 const EN = {
-  badge:"DEMO — no real money", lang:"日本語",
+  badge:"DEMO FIXTURE · no real money · NOT BROADCAST", lang:"日本語",
   title:"A local spending firewall for AI agents.",
   sub:"Found an unreviewed package → bought one analysis → fixed it safely.",
-  cta:"Run it", cta2:"If it cost more?", again:"Again",
-  n1:"Unreviewed", n2:"Analysis", n3:"In budget", n3_ask:"Needs a human",
+  cta:"Run it", cta2:"Over the cap", again:"Again",
+  n1:"Unreviewed", n2:"Analysis", n3:"In budget", n3_ask:"ASK · over cap",
   n4:"Paid", n5:"Safe version", n5_off:"Quarantined",
-  decide:"Buy the $0.50 analysis?", approve:"Buy", reject:"Decline",
+  decide:"UNBLOCK policy: ASK — $0.50 exceeds the $0.10 per-request cap.",
+  decide_sub:"The agent is stopped. Only a human decision can restart it.",
+  approve:"Approve", reject:"Reject",
   k_paid:"Paid", k_left:"Left", k_pr:"Evidence", nopay:"none",
   k_amount:"Amount", k_shop:"Merchant", k_settle:"Settlement", k_verdict:"Verdict",
   k_observed:"Posting to", k_cleared:"Cleared", k_action:"Decision",
@@ -954,6 +958,7 @@ async function runStory(scenario){
     PENDING = {job: verdict.job_id, scenario, before: doc.body, price};
     document.getElementById("tail").appendChild(el(`<div class="decide">
         <div class="q">${esc(L.decide)}</div>
+        <div class="dim" style="margin-top:4px">${esc(L.decide_sub)}</div>
         <div class="row">
           <button class="approve" onclick="decide('APPROVE')">${esc(L.approve)}</button>
           <button class="reject" onclick="decide('REJECT')">${esc(L.reject)}</button>

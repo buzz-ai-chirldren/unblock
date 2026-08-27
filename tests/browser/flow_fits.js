@@ -11,14 +11,17 @@
 // So this samples scrollWidth against clientWidth THROUGHOUT the run, not just
 // at the end: the widest moment is not always the last one.
 //
-// Run: node tests/browser/flow_fits.js <base-url> <token> <width> go|go2 [reject]
+// Run: node tests/browser/flow_fits.js <base-url> <token> <width> go|go2 [reject|approve]
+// LANG_CHOICE=en|ja picks the copy under test: the labels differ in width, so
+// measuring one language says nothing about the other.
 // Prints one JSON object. Exit 1 if the flow ever overflowed its column.
 const WebSocket = require(process.env.WS_MODULE);
 const { spawn } = require('child_process');
 
-const [URL_BASE, TOKEN, WIDTH, BUTTON, REJECT] = process.argv.slice(2);
+const [URL_BASE, TOKEN, WIDTH, BUTTON, DECIDE] = process.argv.slice(2);
 const CHROME = process.env.CHROME_PATH;
 const PORT = Number(process.env.CDP_PORT || 9614);
+const LANG = process.env.LANG_CHOICE || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const chrome = spawn(CHROME, ['--headless', '--no-sandbox', '--disable-gpu',
@@ -59,6 +62,12 @@ const ev = (ws, expression) =>
                 document.querySelector('form').submit();`);
   await sleep(3500);
 
+  if (LANG) {
+    await ev(ws, `localStorage.setItem('lang', ${JSON.stringify(LANG)})`);
+    await send(ws, 'Page.navigate', { url: URL_BASE });
+    await sleep(2500);
+  }
+
   const probe = `(() => {
     const flow = document.querySelector('.flow');
     if (!flow) return null;
@@ -91,14 +100,15 @@ const ev = (ws, expression) =>
       widest = Math.max(widest, f.rowWidth);
       if (f.scrollWidth > f.clientWidth || f.firstClipped > 0) overflow.push({ frame: i, ...f });
     }
-    if (REJECT && !decided && await ev(ws, `!!document.querySelector('.reject')`)) {
+    if (DECIDE && !decided && await ev(ws, `!!document.querySelector('.${DECIDE}')`)) {
       decided = true;
-      await ev(ws, `document.querySelector('.reject').click()`);
+      await ev(ws, `document.querySelector('.${DECIDE}').click()`);
     }
     await sleep(200);
   }
   const final = await ev(ws, probe);
-  console.log(JSON.stringify({ width: Number(WIDTH), widestRow: widest,
+  console.log(JSON.stringify({ width: Number(WIDTH), lang: LANG || 'default',
+                              decide: DECIDE || 'none', widestRow: widest,
                               headroom: final ? final.clientWidth - widest : null, final, overflow }));
   chrome.kill();
   process.exit(overflow.length ? 1 : 0);

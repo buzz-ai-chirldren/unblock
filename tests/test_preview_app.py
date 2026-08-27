@@ -773,8 +773,8 @@ def test_an_error_mid_run_discards_what_was_held(served, tmp_path):
     assert state["buttonsEnabled"], "the run buttons stayed disabled after a failure"
 
 
-@pytest.mark.parametrize("button,reject", [("go", False), ("go2", True)])
-def test_the_panel_never_runs_ahead_of_the_story(served, button, reject):
+@pytest.mark.parametrize("button,decide", [("go", ""), ("go2", "reject"), ("go2", "approve")])
+def test_the_panel_never_runs_ahead_of_the_story(served, button, decide):
     """UI Gate item 4, run rather than eyeballed.
 
     The fault this catches was fixed once on the paid path and left standing on
@@ -786,8 +786,8 @@ def test_the_panel_never_runs_ahead_of_the_story(served, button, reject):
     import subprocess
 
     command = ["node", str(REPO / "tests/browser/lead_invariant.js"), served, TOKEN, button]
-    if reject:
-        command.append("reject")
+    if decide:
+        command.append(decide)
 
     result = subprocess.run(
         command, capture_output=True, text=True, timeout=240,
@@ -901,6 +901,39 @@ def test_refusing_leaves_nothing_to_read(client):
 def test_the_analysis_route_needs_a_real_job(client):
     assert client.get("/api/analysis", params={"job_id": "unblock-nope"},
                       headers=auth()).status_code == 404
+
+
+@pytest.mark.parametrize("lang", ["en", "ja"])
+@pytest.mark.parametrize("width,button,decide", [
+    (1280, "go", ""), (1280, "go2", "reject"), (1280, "go2", "approve"),
+    (1920, "go", ""), (1920, "go2", "approve"),
+])
+def test_the_whole_chain_stays_on_a_desktop_screen(served, width, button, decide, lang):
+    """UI Gate item 6. This lived as a hand-run script until a copy change made
+    the node labels wider; a gate nobody runs is a gate that has already failed.
+
+    Both languages, because the labels are not the same width in each and the
+    column has ~40px of headroom -- measuring one says nothing about the other.
+    """
+    import json
+    import subprocess
+
+    command = ["node", str(REPO / "tests/browser/flow_fits.js"), served, TOKEN,
+               str(width), button]
+    if decide:
+        command.append(decide)
+
+    result = subprocess.run(
+        command, capture_output=True, text=True, timeout=240,
+        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE),
+             "CDP_PORT": "9613", "LANG_CHOICE": lang},
+    )
+    assert result.returncode != 2, result.stderr
+    state = json.loads(result.stdout.strip().splitlines()[-1])
+
+    assert not state["overflow"], (
+        f"the flow overflowed its column: {state['overflow'][:2]}")
+    assert state["final"]["firstClipped"] == 0, "node 1 was sheared by the left edge"
 
 
 def test_only_the_paid_path_asks_for_the_analysis(client):

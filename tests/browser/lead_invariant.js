@@ -16,12 +16,12 @@
 // sampled while the story runs, because frames are what a viewer and a camera
 // see - a panel that ends up correct can still have shown the ending early.
 //
-// Run: node tests/browser/lead_invariant.js <base-url> <token> go|go2 [reject]
+// Run: node tests/browser/lead_invariant.js <base-url> <token> go|go2 [reject|approve]
 // Prints one JSON object. Exit 1 if the panel ever ran ahead.
 const WebSocket = require(process.env.WS_MODULE);
 const { spawn } = require('child_process');
 
-const [URL_BASE, TOKEN, BUTTON, REJECT] = process.argv.slice(2);
+const [URL_BASE, TOKEN, BUTTON, DECIDE] = process.argv.slice(2);
 const CHROME = process.env.CHROME_PATH;
 const PORT = Number(process.env.CDP_PORT || 9612);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -87,9 +87,9 @@ const ev = (ws, expression) =>
     // The outcome is legible in the panel before the step that announces it.
     if ((frame.paid && frame.left < 4) || (frame.free && frame.left < 5))
       ahead.push({ frame: i, ...frame });
-    if (REJECT && !decided && await ev(ws, `!!document.querySelector('.reject')`)) {
+    if (DECIDE && !decided && await ev(ws, `!!document.querySelector('.${DECIDE}')`)) {
       decided = true;
-      await ev(ws, `document.querySelector('.reject').click()`);
+      await ev(ws, `document.querySelector('.${DECIDE}').click()`);
     }
     await sleep(200);
   }
