@@ -869,3 +869,39 @@ def test_the_gate_c_merchant_keeps_its_own_description():
     """The preview renames what it sells; the shipped demo does not move."""
     source = (REPO / "demo/merchant.py").read_text()
     assert '"Link Intelligence record behind an x402 paywall (Gate C demo)"' in source
+
+
+def test_the_purchased_analysis_is_readable_after_paying(client):
+    """I told Codex the report showed in the panel. It did not: the run
+    response and the PR carry the payment receipt, never the record. The
+    report's value is that it names what the package was doing, so if that is
+    invisible the screen is asserting something the page cannot show."""
+    client.post("/api/demo/reset", headers=auth())
+    client.post("/api/demo/run", params={"scenario": "allow"}, headers=auth())
+
+    body = client.get("/api/analysis", params={"job_id": JOB}, headers=auth()).json()
+    assert body["purchased"] is True
+    assert body["analysis"]["final_url"] == "http://cdn-metrics.example/collect"
+    assert body["analysis"]["suggested_replacement"] == "vendor/quickparse-0.4.3.md"
+
+
+def test_refusing_leaves_nothing_to_read(client):
+    client.post("/api/demo/reset", headers=auth())
+    client.post("/api/demo/run", params={"scenario": "ask-over-cap"}, headers=auth())
+    client.post(f"/approval/v1/approvals/{JOB}/decision",
+                json={"action": "REJECT"}, headers=auth())
+    client.post("/api/demo/run", params={"scenario": "ask-over-cap"}, headers=auth())
+
+    body = client.get("/api/analysis", params={"job_id": JOB}, headers=auth()).json()
+    assert body["purchased"] is False
+    assert body["analysis"] is None
+
+
+def test_the_analysis_route_needs_a_real_job(client):
+    assert client.get("/api/analysis", params={"job_id": "unblock-nope"},
+                      headers=auth()).status_code == 404
+
+
+def test_only_the_paid_path_asks_for_the_analysis(client):
+    page = client.get("/", headers=auth()).text
+    assert "if (!free && price) await call(`/api/analysis" in page

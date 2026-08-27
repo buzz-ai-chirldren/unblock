@@ -406,6 +406,37 @@ def merchant_challenge(broken_url: str = UNREVIEWED, price: str = "0.05") -> dic
     }
 
 
+@app.get("/api/analysis")
+def analysis(job_id: str) -> dict:
+    """The record this job actually paid for, read back out of the ledger.
+
+    Not a copy of the fixture: the clerk stores what the rail returned, and
+    `pipeline._replacement_from` is handed exactly this object. Without it the
+    screen claims a threat report was bought while nothing on the page ever
+    shows one - the report's whole value is that it names what the package was
+    doing, and that was invisible.
+
+    Empty when nothing was bought, which is the honest state of the rejected
+    path: you do not have the analysis, because you did not buy it.
+    """
+    clerk = _clerk_factory()
+    try:
+        job = clerk.ledger.job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="unknown job")
+        invoice = clerk.ledger.invoice_row(job["merchant"] or "", job["invoice_id"] or "")
+        receipt = clerk.ledger.receipt(invoice) if invoice else None
+        if not receipt or not receipt.get("resource"):
+            return {"purchased": False, "analysis": None}
+        try:
+            record = json.loads(receipt["resource"])
+        except (json.JSONDecodeError, TypeError):
+            return {"purchased": False, "analysis": None}
+        return {"purchased": True, "analysis": record}
+    finally:
+        clerk.ledger.close()
+
+
 @app.get("/api/jobs")
 def jobs() -> list[dict]:
     """Every job in the preview ledger, newest first."""
@@ -737,6 +768,7 @@ const JA = {
   r_cap:"1回の上限", r_week:"1週間の上限", r_shop:"知っているお店か",
   v_pay:"→ 自動で払ってよい", v_ask:"→ 人間に聞く",
   k_paid:"支払った額", k_left:"残った不具合", k_pr:"証拠", k_price:"値段", k_shop:"お店",
+  k_observed:"観測した送信先", k_cleared:"安全と確認した版", k_when:"解析時刻",
   approve:"払っていい", reject:"払わない", decide:"あなたが決めてください",
   before:"直す前", after:"直した後", nopay:"支払いなし",
   dev:"開発者向けの生データ", d_jobs:"ジョブ一覧", d_pr:"PR成果物", d_402:"402チャレンジ",
@@ -784,6 +816,7 @@ const EN = {
   r_cap:"Per-purchase cap", r_week:"Weekly allowance", r_shop:"Known merchant",
   v_pay:"→ pay automatically", v_ask:"→ ask a human",
   k_paid:"Paid", k_left:"Remaining faults", k_pr:"Evidence", k_price:"Price", k_shop:"Merchant",
+  k_observed:"Observed destination", k_cleared:"Cleared version", k_when:"Analysed at",
   approve:"Approve", reject:"Reject", decide:"Your call",
   before:"before", after:"after", nopay:"nothing paid",
   dev:"Raw data for developers", d_jobs:"jobs", d_pr:"PR artifact", d_402:"402 challenge",
@@ -866,6 +899,12 @@ function summarise(path, body) {
     kv.push([L.k_rail, `MOCK`]);
     if (v.receipt) kv.push([L.k_amount, `$${esc(v.receipt.amount)} ${esc(v.receipt.currency)}`]);
     kv.push([L.k_settle, badge("mock", L.v_notbroadcast)]);
+  } else if (path.startsWith("/api/analysis")) {
+    if (!body?.purchased) return "";
+    const a = body.analysis || {};
+    kv.push([L.k_observed, esc(a.final_url || "")]);
+    kv.push([L.k_cleared, esc(a.suggested_replacement || "")]);
+    kv.push([L.k_when, esc(a.observed_at || "")]);
   } else if (path.includes("/decision")) {
     kv.push([L.k_action, esc(body?.action_in_effect || "")]);
     kv.push([L.k_state, esc(body?.state || "")]);
@@ -1080,6 +1119,9 @@ async function paid(verdict, beforeBody, price){
 
   await pace(BEAT);
   STEP = 5;
+  // What the money actually bought, read back from the ledger. Skipped on the
+  // rejected path because there is nothing to read.
+  if (!free && price) await call(`/api/analysis?job_id=${encodeURIComponent(verdict.job_id)}`, {}, true);
   // Held as well: on the rejected path the run response carries done-free, and
   // showing that before step 5 is drawn tells the ending early - the same fault
   // the paid path had, one branch over.
