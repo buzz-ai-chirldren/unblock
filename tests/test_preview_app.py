@@ -27,7 +27,9 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 TOKEN = "test-token-that-is-long-enough-xxxx"
-JOB = "unblock-1c00f07c873d"
+# Derived, not pinned: the job id comes from the incident, so a fixture change
+# would otherwise leave every decision test posting to a job that never existed.
+JOB = "unblock-7937bef067a1"
 
 
 @pytest.fixture
@@ -382,8 +384,8 @@ def test_the_future_section_does_not_overclaim(client):
 
 def test_the_story_is_told_in_both_languages(client):
     page = client.get("/", headers=auth()).text
-    assert "リンク切れを直してみる" in page      # the plain-language primary action
-    assert "Fix the broken link" in page          # the same action for filming
+    assert "この未評価の部品を調べる" in page      # the plain-language primary action
+    assert "Check this unreviewed package" in page   # the same action for filming
     for anchor in ("const JA = {", "const EN = {", "toggleLang"):
         assert anchor in page
 

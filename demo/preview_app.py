@@ -111,8 +111,9 @@ if RUN_DIR == REPO or REPO in RUN_DIR.parents:
 
 # Same policy the demo ships with: $0.10 per invoice, $1.00 a week, one
 # allowlisted merchant. Anything outside it parks for a human.
-OFFER = IntelOffer("intel.example", Decimal("0.05"), url="http://intel.example/intel")
-BIG_OFFER = IntelOffer("intel.example", Decimal("0.50"), url="http://intel.example/intel")
+VENDOR = "threat-intel.example"
+OFFER = IntelOffer(VENDOR, Decimal("0.05"), url=f"http://{VENDOR}/intel")
+BIG_OFFER = IntelOffer(VENDOR, Decimal("0.50"), url=f"http://{VENDOR}/intel")
 UNKNOWN_OFFER = IntelOffer("stranger.example", Decimal("0.05"), url="http://stranger.example/intel")
 POLICY = Policy(
     currency="USDC",
@@ -120,14 +121,20 @@ POLICY = Policy(
     per_invoice_cap=Decimal("0.10"),
     merchant_allowlist=frozenset({OFFER.merchant}),
 )
-INTEL_RECORD = json.dumps(
-    json.loads((REPO / "fixtures" / "intel_db.json").read_text())["guides/install.md"]
-)
+# Preview-only fixtures. The Gate C demo keeps its own; see
+# fixtures/README_preview.md for why the preview does not reuse them.
+PREVIEW_SITE = REPO / "fixtures" / "preview_site"
+PREVIEW_INTEL = REPO / "fixtures" / "preview_intel.json"
+UNREVIEWED = "vendor/quickparse-0.4.1.md"
+REVIEWED = "vendor/quickparse-0.4.3.md"
 
-# The free fallback the pipeline uses when a human REJECTS the purchase. Same
-# pair demo/record_reject.py uses, so a rejected job finishes without paying
-# rather than dying -- which is the whole point of REJECT.
-FREE_SOURCES = {"guides/install.md": "docs/setup.md"}
+INTEL_RECORD = json.dumps(json.loads(PREVIEW_INTEL.read_text())[UNREVIEWED])
+
+# The free fallback when a human REJECTS the purchase: without the paid
+# analysis nobody knows what 0.4.1 does, so the job falls back to the last
+# version this repo has actually reviewed. Conservative, free, and it still
+# finishes.
+FREE_SOURCES = {UNREVIEWED: REVIEWED}
 
 SCENARIOS = {
     # label -> (offer, what the human should expect to see)
@@ -141,7 +148,7 @@ def _site() -> Path:
     site = RUN_DIR / "site"
     if not site.exists():
         RUN_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(REPO / "fixtures" / "site", site)
+        shutil.copytree(PREVIEW_SITE, site)
     return site
 
 
@@ -162,7 +169,7 @@ def _pipeline(offer: IntelOffer) -> Unblock:
     policy = POLICY
     return Unblock(
         site_dir=_site(),
-        allowed_file="index.md",
+        allowed_file="release.md",
         clerk_factory=lambda: Clerk(Ledger(RUN_DIR / "ledger.db"), policy, _rail()),
         offer=offer,
         pr_dir=RUN_DIR / "prs",
@@ -225,6 +232,7 @@ try:
 
     from fastapi.testclient import TestClient  # noqa: E402
 
+    os.environ["INTEL_DB_FILE"] = str(PREVIEW_INTEL)
     for _price in ("0.05", "0.50"):
         os.environ["MERCHANT_PRICE"] = f"${_price}"
         _module = importlib.reload(importlib.import_module("demo.merchant"))
@@ -360,7 +368,7 @@ def run(scenario: str = "allow") -> dict:
 
 
 @app.get("/api/merchant/challenge")
-def merchant_challenge(broken_url: str = "guides/install.md", price: str = "0.05") -> dict:
+def merchant_challenge(broken_url: str = UNREVIEWED, price: str = "0.05") -> dict:
     """What the real merchant answers before any payment is made.
 
     Returns the status, the body, and the decoded x402 terms. The paid record
@@ -703,20 +711,25 @@ UI_HTML = r"""<!doctype html>
 const JA = {
   badge:"デモ用・実際のお金は動きません", lang:"English",
   title:"AIにお金を使わせたとき、誰が止めるんですか？",
-  lede:"AIにwalletや課金APIを渡すと、仕事は速くなります。でも、止める人がいません。UNBLOCKは支払いの権限をAI本人から外し、金額・週の予算・相手・承認された内容を、AIが書き換えられないコードで確認します。範囲内なら自分で払って仕事を終わらせ、外れたときだけ人間に聞きます。",
+  lede:"いま会社が年間契約で買っている脅威分析のような情報を、これからはAIが「見つけた瞬間に1件だけ」買うようになります。買えるAIは速い。でも、止める人がいません。UNBLOCKは支払いの権限をAI本人から外し、金額・週の予算・相手・承認された内容を、AIが書き換えられないコードで確認します。範囲内なら自分で払って仕事を終わらせ、外れたときだけ人間に聞きます。",
   defn:"UNBLOCKは、AIのお金の使い方を守るローカルな防火壁です。",
   f_head:"どこで効くのか",
   f_now_k:"今日", f_now:"AIにagent walletやAPIの課金キー、クラウドの予算を渡した時点で、もう必要です。速く働かせるほど、止める仕組みが要ります。",
+  s2_note:"この402は repo 同梱のデモ merchant が生成したもので、説明文は Gate C の fixture のままです。金額・通貨・ネットワークは上の物語と同じ値です。",
   f_next_k:"これから", f_next:"x402やTempo MPPのように、機械が機械から直接買う経路が増えるほど効いてきます。支払える agent には、必ず制御層が要ります。",
   f_bound:"正直に言うと、いま実証できているのは「支払い」の経路です。同じ考え方は他の取り消せない操作にも広げられますが、そこはまだ実装も検証もしていません。",
-  cta:"リンク切れを直してみる", cta2:"高い情報だったら？", again:"もう一度はじめから",
-  s1t:"AIが壊れたリンクを見つけた", s1p:"サイトの中を機械的に調べただけ。ここまではお金の話は出てきません。",
-  s2t:"直し方が有料ページの向こうにある", s2p:"正しいリンク先を知っているサイトが「先にお金を払って」と答えました。ふつうのAIはここで止まります。",
+  cta:"この未評価の部品を調べる", cta2:"高い情報だったら？", again:"もう一度はじめから",
+  s1t:"公開直前のビルドに、誰も評価していない部品が入っている",
+  s1p:"新しく入った package にレビュー記録がありません。まだ警告も被害も出ていないので、人間は気づいていません。危険とも安全とも、いまは言えません。",
+  s2t:"危険かどうかは、最新の脅威分析にしか載っていない",
+  s2p:"無料の情報にはまだ判定がありません。挙動・接続先・安全なバージョンを持っているのは脅威情報サービスだけで、解析結果1件ごとに支払いが要ります。ふつうのAIはここで止まります。",
   s3t:"おこづかい係が判断する", s3p:"AI本人は財布を持っていません。決めるのは、書き換えられないルールです。",
   s4t_pay:"ルールの範囲内なので、自分で払った", s4p_pay:"人を待たずに支払い完了。誰にいくら払ったかは記録に残ります。",
   s4t_ask:"高すぎるので、人間に聞いた", s4p_ask:"AIは勝手に払いません。あなたが決めるまで、この仕事は止まったまま安全に待ちます。",
-  s5t:"直して、確認して、証拠を残した", s5p:"リンクを直し、本当に直ったか確かめ、「何に・なぜ・いくら払ったか」を残しました。",
-  s5t_free:"お金を使わずに直した", s5p_free:"あなたが「払わない」と決めたので、無料の代わりの情報で直しました。支払いはゼロ件です。",
+  s5t:"安全なバージョンに差し替えて、確認して、証拠を残した",
+  s5p:"買った解析が安全と判定したバージョンへ差し替え、参照が本当に解決するか確かめ、「何に・なぜ・いくら払ったか」を残しました。",
+  s5t_free:"お金を使わずに直した",
+  s5p_free:"あなたが「払わない」と決めたので、この repo が最後にレビュー済みのバージョンへ退避しました。支払いはゼロ件です。",
   r_cap:"1回の上限", r_week:"1週間の上限", r_shop:"知っているお店か",
   v_pay:"→ 自動で払ってよい", v_ask:"→ 人間に聞く",
   k_paid:"支払った額", k_left:"残った不具合", k_pr:"証拠", k_price:"値段", k_shop:"お店",
@@ -745,20 +758,25 @@ const JA = {
 const EN = {
   badge:"DEMO — no real money moves", lang:"日本語",
   title:"You gave an AI a wallet. Who stops the spending?",
-  lede:"Hand an agent a wallet or a billing key and it works faster — with nobody to stop it. UNBLOCK takes the spending authority away from the model and checks the amount, the weekly budget, the counterparty and the approved terms in code the model cannot rewrite. Inside the rules it pays and finishes the job; outside them it asks a person.",
+  lede:"The threat analysis a company buys on an annual contract today is the kind of thing an agent will buy one answer at a time, the moment it finds something it cannot judge. An agent that can buy is fast, and nobody is stopping it. UNBLOCK takes the spending authority away from the model and checks the amount, the weekly budget, the counterparty and the approved terms in code the model cannot rewrite. Inside the rules it pays and finishes the job; outside them it asks a person.",
   defn:"UNBLOCK is a local spending firewall for AI agents.",
   f_head:"Where this matters",
   f_now_k:"Today", f_now:"The moment an agent holds a wallet, a billing key or a cloud budget. The faster it works, the more it needs something that can stop it.",
+  s2_note:"This 402 comes from the demo merchant in this repo, so its description string is still the Gate C fixture's. The amount, asset and network are the same values the story just quoted.",
   f_next_k:"Next", f_next:"As machine-to-machine rails like x402 and Tempo MPP spread. Every agent that can spend will need a control layer.",
   f_bound:"To be exact: what this code proves is the payment path. The same shape extends to other irreversible actions, but that is not built or verified here.",
-  cta:"Fix the broken link", cta2:"What if it were expensive?", again:"Start over",
-  s1t:"The agent found a broken link", s1p:"A plain mechanical scan of the site. No money involved yet.",
-  s2t:"The fix is behind a paywall", s2p:"The site that knows the correct target answered: pay first. A normal agent stops here.",
+  cta:"Check this unreviewed package", cta2:"What if it were expensive?", again:"Start over",
+  s1t:"A release build contains a package nobody has reviewed",
+  s1p:"A new dependency turned up with no review card. There is no warning and no incident yet, so nobody has noticed - and nothing here can call it safe or dangerous.",
+  s2t:"Whether it is dangerous is only in the current threat analysis",
+  s2p:"The free sources carry no verdict yet. The behaviour, the outbound connections and the safe version sit with a threat intelligence service, one paid analysis at a time. A normal agent stops here.",
   s3t:"The allowance clerk decides", s3p:"The model holds no wallet. The decision is made by rules it cannot rewrite.",
   s4t_pay:"Within the rules, so it paid", s4p_pay:"No human needed. Who was paid and how much is on the record.",
   s4t_ask:"Too expensive, so it asked", s4p_ask:"The agent will not pay on its own. The job waits, safely, until you decide.",
-  s5t:"Fixed, verified, evidenced", s5p:"It repaired the link, checked the repair really held, and recorded what was bought, why, and for how much.",
-  s5t_free:"Fixed without spending anything", s5p_free:"You said no, so it finished from a free source instead. Zero settlements.",
+  s5t:"Swapped to the safe version, verified, evidenced",
+  s5p:"It moved the build to the version the analysis cleared, checked the reference really resolves, and recorded what was bought, why, and for how much.",
+  s5t_free:"Fixed without spending anything",
+  s5p_free:"You said no, so it fell back to the last version this repo had reviewed. Zero settlements.",
   r_cap:"Per-purchase cap", r_week:"Weekly allowance", r_shop:"Known merchant",
   v_pay:"→ pay automatically", v_ask:"→ ask a human",
   k_paid:"Paid", k_left:"Remaining faults", k_pr:"Evidence", k_price:"Price", k_shop:"Merchant",
@@ -814,7 +832,8 @@ function flushWire() {
 }
 
 function noteFor(path) {
-  if (path.startsWith("/api/merchant/challenge") && !path.includes("nope")) return L.w_402;
+  if (path.startsWith("/api/merchant/challenge") && !path.includes("nope"))
+    return L.w_402 + " " + L.s2_note;
   if (path.includes("/decision")) return L.w_decide;
   return "";
 }
@@ -958,10 +977,11 @@ async function runStory(scenario){
   await pace(BEAT);
   STEP = 1;
   const before = await call("/api/site");
-  const index = before.find(f => f.path === "index.md");
-  const broken = (index.body.match(/\]\(([^)]*install[^)]*)\)/) || [null,"guides/install.md"])[1];
+  const doc = before.find(f => f.path === "release.md");
+  const broken = (doc.body.match(/\]\(([^)]*quickparse-0\.4\.1[^)]*)\)/)
+                  || [null, "vendor/quickparse-0.4.1.md"])[1];
   step(1, "", L.s1t, L.s1p,
-    `<div class="fact">index.md → <span class="mono">${esc(broken)}</span> ✕</div>`);
+    `<div class="fact">release.md → <span class="mono">${esc(broken)}</span> ✕</div>`);
 
   const price = scenario === "allow" ? "0.05" : "0.50";
   await pace(BEAT);
@@ -972,7 +992,7 @@ async function runStory(scenario){
   step(2, "", L.s2t, L.s2p,
     `<div class="fact">HTTP <span class="mono">402 Payment Required</span> ·
       ${L.k_price}: <span class="mono">$${price} USDC</span> ·
-      ${L.k_shop}: <span class="mono">${esc(scenario === "ask-unknown-merchant" ? "stranger.example" : "intel.example")}</span></div>`);
+      ${L.k_shop}: <span class="mono">${esc(scenario === "ask-unknown-merchant" ? "stranger.example" : "threat-intel.example")}</span></div>`);
 
   await pace(BEAT);
   const overCap = Number(price) > 0.10;
@@ -985,7 +1005,7 @@ async function runStory(scenario){
   const checks = [
     [!overCap, `${L.r_cap}: $0.10 &nbsp;<span class="dim">(→ $${price})</span>`],
     [true, `${L.r_week}: $1.00`],
-    [known, `${L.r_shop}: intel.example`],
+    [known, `${L.r_shop}: threat-intel.example`],
   ];
   for (const [ok, text] of checks) {
     rules.appendChild(el(`<div class="rule"><span class="${ok ? "yes" : "no"}">${ok ? "✓" : "✕"}</span><span>${text}</span></div>`));
@@ -1012,9 +1032,9 @@ async function runStory(scenario){
   await pace(BEAT);
 
   if (parked) {
-    PENDING = {job: verdict.job_id, scenario, before: index.body, price};
+    PENDING = {job: verdict.job_id, scenario, before: doc.body, price};
     step(4, "ask", L.s4t_ask, L.s4p_ask, `
-      <div class="fact"><b>${L.decide}</b> — $${price} USDC → intel.example</div>
+      <div class="fact"><b>${L.decide}</b> — $${price} USDC → threat-intel.example</div>
       <div class="row" style="margin-top:12px">
         <button class="approve" onclick="decide('APPROVE')">${L.approve}</button>
         <button class="reject" onclick="decide('REJECT')">${L.reject}</button>
@@ -1022,7 +1042,7 @@ async function runStory(scenario){
     flushWire();   // waiting-approval lands with the step that asks
     return;   // nothing further is generated until a human chooses
   }
-  await paid(verdict, index.body, price);
+  await paid(verdict, doc.body, price);
 }
 
 async function decide(action){
@@ -1060,9 +1080,9 @@ async function paid(verdict, beforeBody, price){
   // showing that before step 5 is drawn tells the ending early - the same fault
   // the paid path had, one branch over.
   const after = await call("/api/site", {}, true);
-  const afterIndex = after.find(f => f.path === "index.md").body;
-  // The line that actually moved, not the first link on the page: index.md
-  // lists two links and only one of them was broken.
+  const afterIndex = after.find(f => f.path === "release.md").body;
+  // The line that actually moved, not the first link in the file: release.md
+  // cites a package that IS reviewed as well.
   const bLines = beforeBody.split("\n"), aLines = afterIndex.split("\n");
   const at = bLines.findIndex((line, n) => line !== aLines[n]);
   const bLine = (bLines[at] ?? "").trim(), aLine = (aLines[at] ?? "").trim();
