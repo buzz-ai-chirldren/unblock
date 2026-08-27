@@ -16,3 +16,8 @@ review card that does not exist, because nobody has reviewed that version -
 buys the record naming what to use instead, rewrites the one allowlisted file
 and verifies. `release.md` also cites a package that IS reviewed, so the diff
 has an untouched neighbour to be measured against.
+
+The link labels carry no version number on purpose. The pipeline rewrites a
+link's target, not its text - correct for a link fixer - so a label reading
+"quickparse 0.4.1" would have survived beside a target of 0.4.3 and the diff
+would have shown a line contradicting itself.
