@@ -2,11 +2,22 @@
 
   UNBLOCK_APPROVAL_TOKENS='{"akiyuki": "<token>"}' \
   UNBLOCK_DB=demo/strands_x402_run2.db \
-  [UNBLOCK_WALLET_FILE=/path/to/wallet.json] \
+  [UNBLOCK_WALLET_FILE=/path/to/wallet.json | UNBLOCK_RAIL_FILE=/path/to/rail.db] \
   uv run uvicorn demo.approval_server:app --port 8403
 
-With UNBLOCK_WALLET_FILE set, resume settles over the real x402 rail
-(Base Sepolia); without it, the mock rail is used.
+Rail selection, in order:
+
+  UNBLOCK_WALLET_FILE  real x402 on Base Sepolia - resume moves real money
+  UNBLOCK_RAIL_FILE    FileRail: a mock that records settlements in its own
+                       SQLite file, so another process can count them. Nothing
+                       moves; this exists so at-most-once can be OBSERVED from
+                       outside the server rather than asserted from inside it.
+  neither              MockRail, in-process and in-memory
+
+MockRail keeps its settlements in the server's own memory, which means a demo
+run against it can never show that a replay after a restart did not pay twice.
+That is the whole claim of this API, so a rail whose record outlives the
+process is worth having.
 """
 
 from __future__ import annotations
@@ -37,6 +48,10 @@ if os.environ.get("UNBLOCK_WALLET_FILE"):
 
     wallet = json.load(open(os.environ["UNBLOCK_WALLET_FILE"]))
     RAIL = X402Rail(private_key=wallet["private_key"])
+elif os.environ.get("UNBLOCK_RAIL_FILE"):
+    from unblock.rails import FileRail
+
+    RAIL = FileRail(os.environ["UNBLOCK_RAIL_FILE"])
 else:
     RAIL = MockRail()
 
