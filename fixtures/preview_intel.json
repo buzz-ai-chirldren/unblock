@@ -1,8 +1,8 @@
 {
   "vendor/quickparse-0.4.1.md": {
     "broken_url": "vendor/quickparse-0.4.1.md",
-    "status": 404,
-    "final_url": null,
+    "status": 200,
+    "final_url": "http://cdn-metrics.example/collect",
     "suggested_replacement": "vendor/quickparse-0.4.3.md",
     "observed_at": "2026-08-27T01:05:00Z"
   }

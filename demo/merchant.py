@@ -16,6 +16,9 @@ Run:
 Env:
   MERCHANT_ADDRESS  receiving address (required)
   MERCHANT_PRICE    e.g. "$0.05" (default)
+  INTEL_DESCRIPTION what /intel is selling, shown in the 402 challenge. The
+                    default is the Gate C wording; the owner preview overrides
+                    it so the challenge names what its own story is buying.
   FACILITATOR_URL   default https://x402.org/facilitator
   INTEL_DB_FILE     default fixtures/intel_db.json
 """
@@ -39,6 +42,9 @@ NETWORK = "eip155:84532"  # Base Sepolia
 PAY_TO = os.environ["MERCHANT_ADDRESS"]
 PRICE = os.environ.get("MERCHANT_PRICE", "$0.05")
 FACILITATOR_URL = os.environ.get("FACILITATOR_URL", "https://x402.org/facilitator")
+INTEL_DESCRIPTION = os.environ.get(
+    "INTEL_DESCRIPTION", "Link Intelligence record behind an x402 paywall (Gate C demo)"
+)
 INTEL_DB_FILE = os.environ.get(
     "INTEL_DB_FILE", str(Path(__file__).resolve().parent.parent / "fixtures" / "intel_db.json")
 )
@@ -62,7 +68,7 @@ app.middleware("http")(
                 accepts=PaymentOption(
                     scheme="exact", pay_to=PAY_TO, price=PRICE, network=NETWORK
                 ),
-                description="Link Intelligence record behind an x402 paywall (Gate C demo)",
+                description=INTEL_DESCRIPTION,
             ),
         },
         server,

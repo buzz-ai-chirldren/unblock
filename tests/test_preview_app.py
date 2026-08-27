@@ -801,3 +801,71 @@ def test_the_panel_never_runs_ahead_of_the_story(served, button, reject):
         f"(transitions {state['transitions']})"
     )
     assert state["reachedEnd"], f"the story did not finish: {state['transitions']}"
+
+
+# -- paying has to buy something -------------------------------------------
+
+def test_the_paid_record_is_the_analysis_the_story_describes(client):
+    """The screen says the report names what the package was doing. The record
+    the pipeline actually validated has to carry that, or the story is a
+    caption over unrelated data."""
+    import json as _json
+
+    record = _json.loads((REPO / "fixtures/preview_intel.json").read_text())
+    entry = record["vendor/quickparse-0.4.1.md"]
+    assert entry["final_url"], "the observed destination is what was bought"
+    assert entry["suggested_replacement"] == "vendor/quickparse-0.4.3.md"
+
+
+def test_the_paid_record_still_passes_strict_validation(client):
+    """It carries the threat meaning inside the five fields the agent accepts.
+    Adding verdict/behaviours would be rejected as invalid intel: the pipeline
+    demands exactly this field set so a merchant cannot smuggle extras in."""
+    import json as _json
+    import sys as _sys
+
+    _sys.path.insert(0, str(REPO / "src"))
+    from unblock.pipeline import INTEL_FIELDS, Unblock
+
+    entry = _json.loads((REPO / "fixtures/preview_intel.json").read_text())[
+        "vendor/quickparse-0.4.1.md"]
+    assert set(entry) == set(INTEL_FIELDS)
+    assert Unblock._replacement_from(
+        {"resource": _json.dumps(entry)}, "vendor/quickparse-0.4.1.md"
+    ) == "vendor/quickparse-0.4.3.md"
+
+
+def test_refusing_to_pay_does_not_land_where_paying_lands(client):
+    """If both routes end at the same file the $0.05 buys nothing, and the
+    whole point of the human decision disappears."""
+    client.post("/api/demo/reset", headers=auth())
+    paid = client.post("/api/demo/run", params={"scenario": "allow"},
+                       headers=auth()).json()
+    paid_site = {f["path"]: f["body"] for f in client.get("/api/site", headers=auth()).json()}
+
+    client.post("/api/demo/reset", headers=auth())
+    client.post("/api/demo/run", params={"scenario": "ask-over-cap"}, headers=auth())
+    client.post(f"/approval/v1/approvals/{JOB}/decision",
+                json={"action": "REJECT"}, headers=auth())
+    free = client.post("/api/demo/run", params={"scenario": "ask-over-cap"},
+                       headers=auth()).json()
+    free_site = {f["path"]: f["body"] for f in client.get("/api/site", headers=auth()).json()}
+
+    assert paid["verdicts"][0]["status"] == "done-paid"
+    assert free["verdicts"][0]["status"] == "done-free"
+    assert "quickparse-0.4.3.md" in paid_site["release.md"], "paying keeps the feature"
+    assert "quarantined.md" in free_site["release.md"], "refusing switches it off"
+    assert paid_site["release.md"] != free_site["release.md"]
+
+
+def test_the_preview_challenge_names_what_it_sells(client):
+    body = client.get("/api/merchant/challenge", headers=auth()).json()
+    assert body["payment_required"]["resource"]["description"] == (
+        "Threat intelligence report for an unreviewed dependency"
+    )
+
+
+def test_the_gate_c_merchant_keeps_its_own_description():
+    """The preview renames what it sells; the shipped demo does not move."""
+    source = (REPO / "demo/merchant.py").read_text()
+    assert '"Link Intelligence record behind an x402 paywall (Gate C demo)"' in source

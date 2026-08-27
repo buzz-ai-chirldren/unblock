@@ -126,15 +126,16 @@ POLICY = Policy(
 PREVIEW_SITE = REPO / "fixtures" / "preview_site"
 PREVIEW_INTEL = REPO / "fixtures" / "preview_intel.json"
 UNREVIEWED = "vendor/quickparse-0.4.1.md"
-REVIEWED = "vendor/quickparse-0.4.3.md"
+CLEARED = "vendor/quickparse-0.4.3.md"        # what the paid analysis clears
+QUARANTINED = "vendor/quickparse-quarantined.md"   # where refusing to pay lands
 
 INTEL_RECORD = json.dumps(json.loads(PREVIEW_INTEL.read_text())[UNREVIEWED])
 
-# The free fallback when a human REJECTS the purchase: without the paid
-# analysis nobody knows what 0.4.1 does, so the job falls back to the last
-# version this repo has actually reviewed. Conservative, free, and it still
-# finishes.
-FREE_SOURCES = {UNREVIEWED: REVIEWED}
+# Refusing to pay must not land where paying lands, or the $0.05 buys nothing.
+# Without the analysis nobody knows what 0.4.1 does, so the only safe move is to
+# switch the dependency off: the build still ships, the feature does not. The
+# paid path keeps the feature by moving to the version the analysis cleared.
+FREE_SOURCES = {UNREVIEWED: QUARANTINED}
 
 SCENARIOS = {
     # label -> (offer, what the human should expect to see)
@@ -233,6 +234,9 @@ try:
     from fastapi.testclient import TestClient  # noqa: E402
 
     os.environ["INTEL_DB_FILE"] = str(PREVIEW_INTEL)
+    os.environ["INTEL_DESCRIPTION"] = (
+        "Threat intelligence report for an unreviewed dependency"
+    )
     for _price in ("0.05", "0.50"):
         os.environ["MERCHANT_PRICE"] = f"${_price}"
         _module = importlib.reload(importlib.import_module("demo.merchant"))
@@ -726,10 +730,10 @@ const JA = {
   s3t:"おこづかい係が判断する", s3p:"AI本人は財布を持っていません。決めるのは、書き換えられないルールです。",
   s4t_pay:"ルールの範囲内なので、自分で払った", s4p_pay:"人を待たずに支払い完了。誰にいくら払ったかは記録に残ります。",
   s4t_ask:"高すぎるので、人間に聞いた", s4p_ask:"AIは勝手に払いません。あなたが決めるまで、この仕事は止まったまま安全に待ちます。",
-  s5t:"安全なバージョンに差し替えて、確認して、証拠を残した",
-  s5p:"買った解析が安全と判定したバージョンへ差し替え、参照が本当に解決するか確かめ、「何に・なぜ・いくら払ったか」を残しました。",
-  s5t_free:"お金を使わずに直した",
-  s5p_free:"あなたが「払わない」と決めたので、この repo が最後にレビュー済みのバージョンへ退避しました。支払いはゼロ件です。",
+  s5t:"解析が安全と判定したバージョンへ差し替えた",
+  s5p:"買った解析は 0.4.1 が外部へ送信していた先まで特定していました。安全と確認された 0.4.3 へ差し替え、参照が解決するか確かめ、「何に・なぜ・いくら払ったか」を残しました。機能は動いたままです。",
+  s5t_free:"お金は使わず、機能を止めて安全側に倒した",
+  s5p_free:"払わない選択をしたので、0.4.1 が何をするか分からないままです。この package を切って隔離しました。ビルドは通りますが、その機能は止まります。支払いはゼロ件です。",
   r_cap:"1回の上限", r_week:"1週間の上限", r_shop:"知っているお店か",
   v_pay:"→ 自動で払ってよい", v_ask:"→ 人間に聞く",
   k_paid:"支払った額", k_left:"残った不具合", k_pr:"証拠", k_price:"値段", k_shop:"お店",
@@ -773,10 +777,10 @@ const EN = {
   s3t:"The allowance clerk decides", s3p:"The model holds no wallet. The decision is made by rules it cannot rewrite.",
   s4t_pay:"Within the rules, so it paid", s4p_pay:"No human needed. Who was paid and how much is on the record.",
   s4t_ask:"Too expensive, so it asked", s4p_ask:"The agent will not pay on its own. The job waits, safely, until you decide.",
-  s5t:"Swapped to the safe version, verified, evidenced",
-  s5p:"It moved the build to the version the analysis cleared, checked the reference really resolves, and recorded what was bought, why, and for how much.",
-  s5t_free:"Fixed without spending anything",
-  s5p_free:"You said no, so it fell back to the last version this repo had reviewed. Zero settlements.",
+  s5t:"Moved to the version the analysis cleared",
+  s5p:"The report named the host 0.4.1 was posting to. The build moves to 0.4.3, the reference resolves, and what was bought, why and for how much is on the record. The feature keeps working.",
+  s5t_free:"Nothing spent, and the feature is off",
+  s5p_free:"You declined, so nobody knows what 0.4.1 does. The dependency is switched off and quarantined: the build ships, that feature does not. Zero settlements.",
   r_cap:"Per-purchase cap", r_week:"Weekly allowance", r_shop:"Known merchant",
   v_pay:"→ pay automatically", v_ask:"→ ask a human",
   k_paid:"Paid", k_left:"Remaining faults", k_pr:"Evidence", k_price:"Price", k_shop:"Merchant",
