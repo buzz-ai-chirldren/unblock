@@ -44,7 +44,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
-    FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse,
+    HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse,
 )
 
 REPO = Path(__file__).resolve().parent.parent
@@ -474,17 +474,6 @@ def site_files() -> list[dict]:
 def ui() -> str:
     return UI_HTML
 
-
-PILOT = Path(__file__).resolve().parent / "preview_assets" / "unblock-pilot.mp4"
-
-
-@app.get("/pilot.mp4")
-def pilot():
-    """The 45s pilot cut, served here because the relay refuses the file and a
-    second place to look is a second thing to lose."""
-    if not PILOT.exists():
-        raise HTTPException(status_code=404, detail="no pilot render bundled")
-    return FileResponse(PILOT, media_type="video/mp4")
 
 
 @app.get("/login", response_class=HTMLResponse)

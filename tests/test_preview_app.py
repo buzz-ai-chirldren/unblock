@@ -77,7 +77,7 @@ def test_refuses_a_short_token(monkeypatch):
 # -- what is readable without a token ---------------------------------------
 
 @pytest.mark.parametrize("path", [
-    "/", "/api/jobs", "/api/pr", "/api/site", "/pilot.mp4",
+    "/", "/api/jobs", "/api/pr", "/api/site",
     "/api/merchant/challenge", "/approval/v1/approvals", "/docs", "/openapi.json",
 ])
 def test_everything_interesting_needs_a_token(client, path):
@@ -692,13 +692,19 @@ def test_a_new_story_inherits_nothing_that_was_held(client):
 
 # -- the error path, executed rather than read ------------------------------
 
-CHROME = (
-    Path("/srv/workspaces/claude/REPOS/OpenMontage/remotion-composer/node_modules")
-    / ".remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell"
-)
-WS_MODULE = (
-    Path("/srv/workspaces/claude/REPOS/OpenMontage/remotion-composer/node_modules/ws")
-)
+# Point these at your own Chromium and `ws` install to run the browser gates:
+#
+#   CHROME_PATH=$(which chromium) WS_MODULE=/path/to/node_modules/ws uv run pytest
+#
+# The defaults are this project's development checkout. Without an override and
+# without those paths the browser tests skip, which is why they name themselves
+# in the skip message rather than quietly reducing the count.
+_DEV_NODE_MODULES = Path(
+    "/srv/workspaces/claude/REPOS/OpenMontage/remotion-composer/node_modules")
+CHROME = Path(os.environ.get("CHROME_PATH") or (
+    _DEV_NODE_MODULES
+    / ".remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell"))
+WS_MODULE = Path(os.environ.get("WS_MODULE") or (_DEV_NODE_MODULES / "ws"))
 
 
 @pytest.fixture
