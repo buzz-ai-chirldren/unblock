@@ -661,10 +661,25 @@ UI_HTML = r"""<!doctype html>
                   border-radius:0; border-left:none; border-right:none; border-bottom:none;
                   padding:11px; font-weight:600; }
     main { padding-bottom:64px; }
-    .wire { position:fixed; left:0; right:0; bottom:44px; z-index:20; max-height:70vh;
-            border-radius:12px 12px 0 0; transform:translateY(calc(101% + 44px));
-            transition:transform .22s ease; }
+    /* top:auto matters: the sticky rule above sets top:14px, and on a fixed
+       element top wins over bottom - the drawer stayed a third on screen. */
+    .wire { position:fixed; top:auto; left:0; right:0; bottom:44px; z-index:20;
+            max-height:70vh; border-radius:12px 12px 0 0;
+            transform:translateY(calc(101% + 44px)); transition:transform .22s ease; }
     .wire.open { transform:none; }
+  }
+  @media (max-width:700px){
+    /* Stacked, not scrolled sideways. A horizontal scroller lands the reader on
+       the last node with the previous four off-screen, which is the opposite of
+       a chain you can take in at a glance. */
+    .flow { flex-direction:column; align-items:stretch; overflow-x:visible; gap:6px; }
+    /* The arrow sits above its node rather than beside it, so every node starts
+       at the same left edge - beside it, the first node was the only one
+       without an arrow and stood out of line. */
+    .step { flex-direction:column; align-items:stretch; gap:2px; }
+    .step .arrow { transform:rotate(90deg); margin-left:20px; }
+    .node { width:100%; }
+    #meta { display:none; }
   }
   @media (prefers-reduced-motion: reduce){
     .step, .rule, .w-entry { animation:none; opacity:1; transform:none; }
