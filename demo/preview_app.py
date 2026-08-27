@@ -567,7 +567,10 @@ UI_HTML = r"""<!doctype html>
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 
   /* the flow */
-  .flow { margin-top:30px; display:flex; align-items:stretch; gap:10px; flex-wrap:wrap; }
+  /* One line, always. Wrapping put the newest node alone on a second row with
+     a dangling arrow, which reads as two flows rather than one. */
+  .flow { margin-top:30px; display:flex; align-items:stretch; gap:10px;
+          flex-wrap:nowrap; overflow-x:auto; padding-bottom:6px; }
   .step { flex:0 0 auto; display:flex; align-items:center; gap:10px;
           opacity:0; transform:translateY(6px); animation:in .3s ease forwards; }
   @keyframes in { to { opacity:1; transform:none } }
@@ -576,9 +579,15 @@ UI_HTML = r"""<!doctype html>
   .node .ico { font-size:20px; line-height:1; }
   .node .lab { font-size:13px; color:var(--dim); margin-top:6px; }
   .node .val { font-size:17px; font-weight:600; margin-top:2px; word-break:break-all; }
+  /* Finished nodes shrink but keep their value: the point of the final frame
+     is that the whole chain is still readable - what was found, what it cost,
+     what it became. Hiding it left a row of ticks that says nothing. */
   .step.done .node { padding:9px 12px; min-width:0; }
-  .step.done .node .lab, .step.done .node .val { display:none; }
-  .step.done .node .ico::after { content:" ✓"; color:var(--safe); font-size:15px; }
+  .step.done .node .lab { display:none; }
+  .step.done .node .val { font-size:13px; font-weight:500; color:var(--dim); margin-top:4px; }
+  .step.done .node .ico { font-size:15px; }
+  .step.done .node .ico::after { content:" ✓"; color:var(--safe); font-size:12px; }
+  .step.done .chips { display:none; }
   .arrow { color:var(--line); font-size:20px; align-self:center; }
   .t-risk .node { border-color:var(--risk); box-shadow:inset 3px 0 0 var(--risk); }
   .t-pay  .node { border-color:var(--pay);  box-shadow:inset 3px 0 0 var(--pay); }
