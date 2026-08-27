@@ -110,6 +110,15 @@ REJECT completes the job from a free fallback source — **no payment ever
 happens**. APPROVE pays under the exact digest-pinned terms the human saw.
 Decisions are terminal: the first one wins, replays and flips are refused.
 
+Measured across real process boundaries — one process parks the job, a second
+(the server) approves and pays, a third replays the resume — in
+[`docs/gate-b-evidence.md`](docs/gate-b-evidence.md). One settlement for the
+approved job, none for the rejected one, over nine processes:
+
+```bash
+demo/run_gate_b.sh     # process-live, mock rail, no network or wallet
+```
+
 ## Architecture
 
 ```
