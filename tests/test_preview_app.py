@@ -764,8 +764,7 @@ def test_an_error_mid_run_discards_what_was_held(served, tmp_path):
     result = subprocess.run(
         ["node", str(REPO / "tests/browser/error_cleanup.js"), served, TOKEN],
         capture_output=True, text=True, timeout=180,
-        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE),
-             "CDP_PORT": "9611"},
+        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE)},
     )
     assert result.returncode == 0, result.stderr
     state = json.loads(result.stdout.strip().splitlines()[-1])
@@ -795,14 +794,9 @@ def test_the_panel_never_runs_ahead_of_the_story(served, button, decide):
     if decide:
         command.append(decide)
 
-    # Each parameterized browser run gets its own debugging port. Reusing one
-    # port can attach the next case to a Chrome process that the prior case has
-    # signalled but has not yet exited.
-    debug_port = {"": "9612", "reject": "9613", "approve": "9614"}[decide]
     result = subprocess.run(
         command, capture_output=True, text=True, timeout=240,
-        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE),
-             "CDP_PORT": debug_port},
+        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE)},
     )
     assert result.returncode != 2, result.stderr
     state = json.loads(result.stdout.strip().splitlines()[-1])
@@ -935,8 +929,7 @@ def test_the_whole_chain_stays_on_a_desktop_screen(served, width, button, decide
 
     result = subprocess.run(
         command, capture_output=True, text=True, timeout=240,
-        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE),
-             "CDP_PORT": "9613", "LANG_CHOICE": lang},
+        env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE), "LANG_CHOICE": lang},
     )
     assert result.returncode != 2, result.stderr
     state = json.loads(result.stdout.strip().splitlines()[-1])

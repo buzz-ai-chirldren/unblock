@@ -19,15 +19,11 @@
 // Run: node tests/browser/lead_invariant.js <base-url> <token> go|go2 [reject|approve]
 // Prints one JSON object. Exit 1 if the panel ever ran ahead.
 const WebSocket = require(process.env.WS_MODULE);
-const { spawn } = require('child_process');
+const { launch, close } = require('./chrome.js');
 
 const [URL_BASE, TOKEN, BUTTON, DECIDE] = process.argv.slice(2);
 const CHROME = process.env.CHROME_PATH;
-const PORT = Number(process.env.CDP_PORT || 9612);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const chrome = spawn(CHROME, ['--headless', '--no-sandbox', '--disable-gpu',
-  `--remote-debugging-port=${PORT}`, '--window-size=1440,1700', 'about:blank'], { stdio: 'ignore' });
 
 let id = 0;
 const pending = new Map();
@@ -41,8 +37,8 @@ const ev = (ws, expression) =>
     .then((r) => r.result?.value);
 
 (async () => {
-  await sleep(2500);
-  const targets = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
+  const { chrome, port } = await launch(CHROME, ['--window-size=1440,1700']);
+  const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json());
   const ws = new WebSocket(targets[0].webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
   await new Promise((r) => ws.on('open', r));
   ws.on('message', (raw) => {
@@ -82,6 +78,11 @@ const ev = (ws, expression) =>
   let decided = false;
   for (let i = 0; i < 80; i++) {
     const frame = await ev(ws, probe);
+    if (!frame) {
+      // The page went away underneath the probe. Say so here: reading .left off
+      // undefined further down reports a product bug that did not happen.
+      throw new Error('probe returned nothing - the page or CDP target is gone');
+    }
     const key = `${frame.left}<-${frame.tag}${frame.paid ? '+paid' : ''}${frame.free ? '+free' : ''}`;
     if (transitions[transitions.length - 1] !== key) transitions.push(key);
     // The outcome is legible in the panel before the step that announces it.
@@ -95,6 +96,6 @@ const ev = (ws, expression) =>
   }
 
   console.log(JSON.stringify({ transitions, ahead, reachedEnd: String(transitions.at(-1)).startsWith('5<-') }));
-  chrome.kill();
+  await close(chrome);
   process.exit(ahead.length ? 1 : 0);
-})().catch((e) => { console.error('driver failed:', e.message); chrome.kill(); process.exit(2); });
+})().catch((e) => { console.error('driver failed:', e.message); process.exit(2); });

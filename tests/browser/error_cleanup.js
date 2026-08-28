@@ -9,15 +9,11 @@
 // Run: node tests/browser/error_cleanup.js <base-url> <token>
 // Prints one JSON object. Exits non-zero if the page cannot be driven.
 const WebSocket = require(process.env.WS_MODULE);
-const { spawn } = require('child_process');
+const { launch, close } = require('./chrome.js');
 
 const [URL_BASE, TOKEN] = process.argv.slice(2);
 const CHROME = process.env.CHROME_PATH;
-const PORT = Number(process.env.CDP_PORT || 9611);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const chrome = spawn(CHROME, ['--headless', '--no-sandbox', '--disable-gpu',
-  `--remote-debugging-port=${PORT}`, '--window-size=1400,1200', 'about:blank'], { stdio: 'ignore' });
 
 let id = 0;
 const pending = new Map();
@@ -31,8 +27,8 @@ const ev = (ws, expression) =>
     .then((r) => r.result?.value);
 
 (async () => {
-  await sleep(2500);
-  const targets = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
+  const { chrome, port } = await launch(CHROME, ['--window-size=1400,1200']);
+  const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json());
   const ws = new WebSocket(targets[0].webSocketDebuggerUrl, { maxPayload: 64 * 1024 * 1024 });
   await new Promise((r) => ws.on('open', r));
   ws.on('message', (raw) => {
@@ -69,6 +65,6 @@ const ev = (ws, expression) =>
     errorShown: document.body.textContent.includes('injected failure'),
     buttonsEnabled: !document.getElementById('go').disabled && !document.getElementById('go2').disabled,
   })`)));
-  chrome.kill();
+  await close(chrome);
   process.exit(0);
-})().catch((e) => { console.error('driver failed:', e.message); chrome.kill(); process.exit(2); });
+})().catch((e) => { console.error('driver failed:', e.message); process.exit(2); });
