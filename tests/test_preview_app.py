@@ -526,7 +526,7 @@ def test_mock_and_live_settlement_are_never_shown_as_the_same_thing(client):
     page = client.get("/", headers=auth()).text
     assert "NOT BROADCAST" in page
     assert "CONFIRMED" in page
-    assert "0x64a0a2d15d9dd4e33c419c0af1289acf30b0eea074630ab177e9760bff430834" in page
+    assert "0xa6b5b1d37e27c1e227de99688092e884164064f9897f8845b2fc1981c877024a" in page
     assert "sepolia.basescan.org" in page
     # the live tx is labelled as a different run, not this one
     assert "別の実行" in page and "a different run" in page
@@ -795,10 +795,14 @@ def test_the_panel_never_runs_ahead_of_the_story(served, button, decide):
     if decide:
         command.append(decide)
 
+    # Each parameterized browser run gets its own debugging port. Reusing one
+    # port can attach the next case to a Chrome process that the prior case has
+    # signalled but has not yet exited.
+    debug_port = {"": "9612", "reject": "9613", "approve": "9614"}[decide]
     result = subprocess.run(
         command, capture_output=True, text=True, timeout=240,
         env={**os.environ, "CHROME_PATH": str(CHROME), "WS_MODULE": str(WS_MODULE),
-             "CDP_PORT": "9612"},
+             "CDP_PORT": debug_port},
     )
     assert result.returncode != 2, result.stderr
     state = json.loads(result.stdout.strip().splitlines()[-1])

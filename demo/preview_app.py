@@ -707,8 +707,8 @@ UI_HTML = r"""<!doctype html>
    <div class="evidence">
      <div class="dim" data-i="e_head"></div>
      <div style="margin-top:5px">x402 · Base Sepolia <span class="badge live">CONFIRMED</span></div>
-     <a href="https://sepolia.basescan.org/tx/0x64a0a2d15d9dd4e33c419c0af1289acf30b0eea074630ab177e9760bff430834"
-        target="_blank" rel="noreferrer">0x64a0a2d1…bff430834</a>
+     <a href="https://sepolia.basescan.org/tx/0xa6b5b1d37e27c1e227de99688092e884164064f9897f8845b2fc1981c877024a"
+        target="_blank" rel="noreferrer">0xa6b5b1d3…c877024a</a>
      <p class="w-note" style="color:var(--dim)" data-i="e_note"></p>
    </div>
  </aside>
@@ -736,7 +736,7 @@ const JA = {
   bound:"実証済みは支払いの経路だけです。",
   w_toggle:"データ", w_close:"閉じる",
   e_head:"過去のLIVE実証（別の実行）",
-  e_note:"Gate C で実際に決済した記録です。上は mock の今回分で、資金は動いていません。",
+  e_note:"Gate A で実際に決済した記録です（再現手順は docs/gate-a-evidence.md）。上は mock の今回分で、資金は動いていません。",
   err_t:"失敗しました", err_p:"保留は破棄しました。",
   raw:"生JSON",
 };
@@ -761,7 +761,7 @@ const EN = {
   bound:"Only the payment path is proven.",
   w_toggle:"Data", w_close:"Close",
   e_head:"verified live run (a different run)",
-  e_note:"A real Gate C settlement. Above is this mock run, where no money moved.",
+  e_note:"A real Gate A settlement, reproduced in docs/gate-a-evidence.md. Above is this mock run, where no money moved.",
   err_t:"The run failed", err_p:"Anything held back was discarded.",
   raw:"raw JSON",
 };

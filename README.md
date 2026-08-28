@@ -91,8 +91,11 @@ BEDROCK_KEY_FILE=... UNBLOCK_WALLET_FILE=/path/to/wallet.json \
 ```
 
 Proven settlement (independently auditable):
-[0.05 USDC on Base Sepolia](https://sepolia.basescan.org/tx/0x64a0a2d15d9dd4e33c419c0af1289acf30b0eea074630ab177e9760bff430834)
-— two consecutive live runs produced exactly this one transfer.
+[0.05 USDC on Base Sepolia](https://sepolia.basescan.org/tx/0xa6b5b1d37e27c1e227de99688092e884164064f9897f8845b2fc1981c877024a)
+— status `0x1`, block 45,980,466, exactly one USDC Transfer log from payer to
+merchant. Re-running that same invoice returned the identical receipt with the
+payer’s balance unchanged. The commands, and a balance ledger accounting for
+every USDC movement out of the payer wallet, are in `docs/gate-a-evidence.md`.
 
 ## Human-in-the-loop path
 
